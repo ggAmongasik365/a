@@ -1,0 +1,464 @@
+# Проверка интернета
+nano /etc/resolv.conf
+nano /etc/network/interfaces
+nano /etc/sysctl.d/sysctl.conf
+nano /etc/nftables.conf
+
+# Модуль первый 1# (HQ-SRV BR-SRV)
+
+apt install openssh-server
+nano /etc/ssh/sshd_config
+-----------------------------
+Port 2026
+AllowUsers sshuser
+MaxAuthTries 2
+Banner /etc/ssh_banner
+-------------------------------
+
+systemctl restart ssh
+nano /etc/ssh_banner
+
+---------------------------------
+**************************
+*                        *
+* Authorized access only *
+*                        *
+**************************
+--------------------------------
+
+# Модуль первый 2# (HQ-RTR BR-RTR)
+
+apt install
+nano /etc/frr/daemons (2=yes)
+systemctl restart frr
+vtysh
+
+conf t
+router ospf
+router-id 1.1.1.1
+no passive-interface default
+network 192.168.100.0/27 area 0
+network 192.168.100.32/28 area 0
+network 10.10.0.0/30 area 0
+area 0 authentication
+int tun1
+no ip ospf passive
+no ip ospf network broadcast
+ip ospf authentication
+ip ospf authentication-key password
+exit
+exit
+wr
+
+
+vtysh
+conf t
+router ospf
+router-id 2.2.2.2
+no passive-interface default
+network 192.168.200.0/28 area 0
+network 10.10.0.0/30 area 0
+area 0 authentication
+int tun1
+no ip ospf passive
+no ip ospf network broadcast
+ip ospf authentication
+ip ospf authentication-key password
+exit
+exit
+wr
+
+# Модуль первый 3# (HQ-RTR)
+apt install isc-dhcp-server
+
+nano /etc/default/isc-dhcp-server
+
+-----------------------------------
+INTERFACESv4="vlan200"
+----------------------------------
+
+nano /etc/dhcp/dhcpd.conf
+
+----------------------------------
+option domain-name "au-team.irpo";
+option domain-name-servers 192.168.100.2;
+
+subnet 192.168.100.32 netmask 255.255.255.240 {
+  range 192.168.100.34 192.168.100.47;
+  option routers 192.168.100.33;
+}
+----------------------------------------------
+
+nano /etc/network/interfaces
+
+---------------------------------------------
+auto ens3
+iface ens3 inet dhcp
+----------------------------------------------
+
+# Модуль первый 4# HQ-SRV
+apt install dnsmasq -y
+nano /etc/dnsmasq.conf
+
+---------------------------------------------
+interface=ens3
+server=8.8.8.8
+domain=au-team.irpo
+listen-address=192.168.100.2
+no-resolv
+no-hosts
+
+address=/hq-rtr.au-team.irpo/192.168.100.1
+ptr-record=1.100.168.192.in-addr.arpa,hq-rtr.au-team.irpo
+address=/br-rtr.au-team.irpo/192.168.200.1
+address=/hq-srv.au-team.irpo/192.168.100.2
+ptr-record=2.100.168.192.in-addr.arpa,hq-srv.au-team.irpo
+address=/hq-cli.au-team.irpo/192.168.100.36
+ptr-record=36.100.168.192.in-addr.arpa,hq-cli.au-team.irpo
+address=/br-srv.au-team.irpo/192.168.200.2
+ptr-record=2.200.168.192.in-addr.arpa,br-srv.au-team.irpo
+address=/docker.au-team.irpo/172.16.1.1
+address=/web.au-team.irpo/172.16.2.1
+---------------------------------------------------------
+
+$$$$$$$$$$$$$$$$$$$$ 2 МОДУЛЬ $$$$$$$$$$$$$$$$$$$$$$$
+
+############# Задание 1 [HQ-RTR]:#####################
+nano /etc/dhcp/dhcpd.conf
+
+option domain-name-server 192.168.200.2;
+systemctl restart isc-dhcp-server
+
+# [BR-SRV]:
+apt update
+apt install -y samba smbclient winbind libnss-winbind krb5-user net-tools
+mv /etc/samba/smb.conf /etc/samba/smb.conf.bak
+systemctl stop smbd nmbd winbind
+systemctl stop samba-ad-dc
+samba-tool domain provision --use-rfc2307 --interactive
+systemctl start smbd nmbd winbind
+systemctl start samba-ad-dc
+cp /var/lib/samba/private/krb5.conf /etc/krb5.conf
+samba-tool group add hq
+samba-tool user create hquser1 P@ssw0rd
+samba-tool user create hquser2 P@ssw0rd
+samba-tool user create hquser3 P@ssw0rd
+samba-tool user create hquser4 P@ssw0rd
+samba-tool user create hquser5 P@ssw0rd
+samba-tool group addmembers hq hquser1
+samba-tool group addmembers hq hquser2
+samba-tool group addmembers hq hquser3
+samba-tool group addmembers hq hquser4
+samba-tool group addmembers hq hquser5
+# [HQ-CLI]:
+apt update && apt install -y realmd sssd sssd-tools libnss-sss libpam-sss adcli packagekit
+realm join -U admininstrator au-team.irpo
+pam-auth-update --enable mkhomedir
+realm deny --all
+realm permit -g hq@au-team.irpo
+
+nano /etc/sudoers.d/hq-users
+
+%hq@au-team.irpo ALL=(ALL) /usr/bin/cat, /usr/bin/grep, /usr/bin/id
+su - hquser1@au-team.irpo
+sudo id
+
+################## 4 задание ISP #####################
+apt install chrony -y
+
+nano /etc/chrony/chrony.conf
+
+server ntp1.vniiftri.ru iburst prefer
+local stratum 5
+allow 0.0.0.0/0
+systemctl restart chronyd
+
+# [HQ-SRV]:
+apt install chrony -y
+
+nano /etc/chrony/chrony.conf
+
+server 172.16.1.1 iburst
+systemctl restart chronyd
+
+# [HQ-CLI]:
+apt install chrony -y
+
+nano /etc/chrony/chrony.conf
+
+server 172.16.1.1 iburst
+systemctl restart chronyd
+
+# [BR-RTR]:
+apt install chrony -y
+
+nano /etc/chrony/chrony.conf
+
+server 172.16.2.1 iburst
+systemctl restart chronyd
+
+# [BR-SRV]:
+apt install chrony -y
+
+nano /etc/chrony/chrony.conf
+
+server 172.16.2.1 iburst
+systemctl restart chronyd
+
+# Задание 5 [BR-SRV]:
+apt install ansible sshpass -y
+mkdir -p /etc/ansible
+
+nano /etc/ansible/ansible.cfg
+
+[defaults]
+host_key_checking = False
+nano /etc/ansible/hosts
+
+# [HQ-RTR]:
+apt install openssh-server
+
+# [BR-RTR]:
+apt install openssh-server
+
+# [HQ-CLI]:
+apt install openssh-server
+useradd -m -s /bin/bash sshuser -U
+usermod -aG sudo sshuser
+passwd sshuser
+P@ssw0rd
+
+# [BR-SRV]:
+ansible all -m ping
+
+################### Задание 6 [BR-SRV]:#########################
+apt install docker.io docker-compose -y
+docker image load -i /root/Additional/docker/site_latest.tar
+docker image load -i /root/Additional/docker/mariadb_latest.tar
+docker images
+mkdir testapp
+cd testapp/
+
+nano docker-compose.yaml
+
+-------------------------------------------
+version: '3.8'
+services:
+  testapp:
+    image: site:latest
+    container_name: testapp
+    restart: always
+    depends_on:
+      - db
+    ports:
+      - "8080:8000"
+    environment:
+      DB_TYPE: maria
+      DB_HOST: db
+      DB_NAME: testdb
+      DB_PORT: "3306"
+      DB_USER: test
+      DB_PASS: Passw0rd
+  db:
+    image: mariadb:10.11
+    container_name: db
+    restart: always
+    environment:
+      MARIADB_DATABASE: testdb
+      MARIADB_USER: test
+      MARIADB_PASSWORD: Passw0rd
+      MARIADB_ROOT_PASSWORD: Passw0rd
+    volumes:
+      - db_data:/var/lib/mysql
+volumes:
+  db_data:
+---------------------------------------------------------
+
+docker-compose -f docker-compose.yaml up -d
+docker ps
+
+################## Задание 7 [HQ-RTR]:###########################
+apt update
+apt install apache2 -y
+apt install mariadb-server mariadb-client -y
+apt install php8.4 php8.4-mysqli -y
+cp /root/Additional/web/dump.sql /tmp
+mysql -u root
+CREATE DATABASE webdb;
+CREATE USER 'web'@'localhost' IDENTIFIED BY 'P@ssw0rd';
+GRANT ALL PRIVILEGES ON webdb.* TO 'web'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+mysql -u root webdb < /tmp/dump.sql
+mkdir -p /var/www/html
+cp /root/Additional/web/index.php /var/www/html
+chown -R www-data:www-data /var/www/html
+chmod -R 755 /var/www/html
+nano /var/www/html/index.php
+
+-------------------------------
+<?php
+$servername = "localhost";
+$username = "web";
+$password = "P@ssw0rd";
+$dbname = "webdb";
+------------------------------------
+
+rm -f /var/www/html/index.html
+rm -f /var/www/html/index.html
+systemctl restart apache2
+
+# [HQ-RTR]:
+nano /etc/dhcp/dhcpd.conf
+
+option domain-name-server 192.168.100.2;
+systemctl restart isc-dhcp-server
+
+# [HQ-CLI]:
+nano /etc/resolv.conf
+nameserver 192.168.100.2
+
+####################### Задание 8 [HQ-SRV]:######################
+nano /etc/apache2/sites-available/000-default.conf
+
+<VirtualHost *:8080>
+
+nano /etc/apache2/ports.conf
+
+Listen 8080
+
+systemctl restart apache2
+
+# [HQ-RTR]:
+nano /etc/nftables.conf
+
+------------------------------------------------------------------------------
+#!/usr/sbin/nft -f
+
+flush ruleset
+
+table ip nat {
+        chain prerouting {
+                type nat hook prerouting priority 0;
+                iifname "ens3" tcp dport 8080 dnat to 192.168.100.2:8080
+                iifname "ens3" tcp dport 2026 dnat to 192.168.100.2:2026
+        }
+
+        chain postrouting {
+                type nat hook postrouting priority 100; policy accept
+                meta l4proto { gre, ipip, ospf } counter return
+                masquerade
+        }
+}
+-------------------------------------------------------------------------------
+
+systemctl restart networking
+
+# [BR-RTR]:
+nano /etc/nftables.conf
+
+-----------------------------------------------------------------------------
+#!/usr/sbin/nft -f
+
+flush ruleset
+
+table ip nat {
+        chain prerouting {
+                type nat hook prerouting priority 0;
+                iifname "ens3" tcp dport 8080 dnat to 192.168.200.2:8080
+                iifname "ens3" tcp dport 2026 dnat to 192.168.200.2:2026
+        }
+
+        chain postrouting {
+                type nat hook postrouting priority 100; policy accept
+                meta l4proto { gre, ipip, ospf } counter return
+                masquerade
+        }
+}
+---------------------------------------------------------------------------
+
+systemctl restart networking
+
+# [ISP]:
+ssh sshuser@172.16.1.2 -p 2026
+ssh sshuser@172.16.2.2 -p 2026
+
+
+###################### Задание 9 [ISP]:#############################
+apt install nginx -y
+nano /etc/nginx/sites-available/proxy
+
+--------------------------------------------------------------------------
+server {
+    listen 80;
+    server_name web.au-team.irpo;
+    location / {
+        proxy_pass http://172.16.1.2:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+
+server {
+    listen 80;
+    server_name docker.au-team.irpo;
+    location / {
+        proxy_pass http://172.16.2.2:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+--------------------------------------------------------------------------
+
+ln -s /etc/nginx/sites-available/proxy /etc/nginx/sites-enabled
+nano /etc/nginx/nginx.conf
+
+-----------------------------------
+server_names_hash_bucket_size 64;
+----------------------------------
+
+nano /etc/hosts
+
+--------------------------------
+172.16.1.1 web.au-team.irpo
+172.16.2.1 docker.au-team.irpo
+--------------------------------
+
+systemctl restart nginx
+
+##################### Задание 10 [ISP]:##############################
+htpasswd -bc /etc/nginx/.htpasswd WEB P@ssw0rd
+
+nano /etc/nginx/sites-enabled/proxy
+
+-------------------------------------------------------
+server {
+    listen 80;
+    server_name web.au-team.irpo;
+    auth_basic "Restricted Access";
+    auth_basic_user_file /etc/nginx/.htpasswd;
+    location / {
+        proxy_pass http://172.16.1.2:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+
+server {
+    listen 80;
+    server_name docker.au-team.irpo;
+    location / {
+        proxy_pass http://172.16.2.2:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+-----------------------------------------------------------
+
+systemctl restart nginx
+
+######################## Задание 11 [HQ-CLI]:#########################
+apt install ./Yandex.deb -y
+yandex-browser-stable --no-sandbox
+
+333333333333333333333333333333333333333
