@@ -1,0 +1,240 @@
+# Установка и настройка FreeRADIUS с сертификатами на Debian 13
+
+## Шаг 1. Установка FreeRADIUS и OpenSSL
+
+```bash
+apt update
+apt install -y freeradius freeradius-utils openssl
+```
+
+## Шаг 2. Создание центра сертификации (CA)
+
+```bash
+cd /etc/freeradius/3.0/certs
+```
+
+Открой файл конфигурации CA:
+```bash
+nano ca.cnf
+```
+
+В секции `[CA_default]` измени срок действия:
+```
+default_days = 3650
+```
+
+Создай корневой сертификат:
+```bash
+make ca.pem
+```
+
+## Шаг 3. Создание сертификата сервера
+
+```bash
+nano server.cnf
+```
+
+В секции `[server]` измени:
+```
+commonName = "FR Server"
+```
+
+Создай сертификат сервера:
+```bash
+make server.pem
+```
+
+## Шаг 4. Создание сертификатов для клиентов
+
+### Для CL-1:
+```bash
+nano client.cnf
+```
+
+В секции `[client]` измени:
+```
+commonName = "CL-1"
+emailAddress = "cl1@au-team.irpo"
+```
+
+```bash
+make client.pem
+mv client.pem cl1.pem
+mv client.key cl1.key
+```
+
+### Для CL-2:
+```bash
+sed -i 's/commonName = "CL-1"/commonName = "CL-2"/' client.cnf
+sed -i 's/cl1@au-team.irpo/cl2@au-team.irpo/' client.cnf
+make client.pem
+mv client.pem cl2.pem
+mv client.key cl2.key
+```
+
+### Для CL-3:
+```bash
+sed -i 's/commonName = "CL-2"/commonName = "CL-3"/' client.cnf
+sed -i 's/cl2@au-team.irpo/cl3@au-team.irpo/' client.cnf
+make client.pem
+mv client.pem cl3.pem
+mv client.key cl3.key
+```
+
+## Шаг 5. Настройка модуля EAP для TLS
+
+```bash
+nano /etc/freeradius/3.0/mods-enabled/eap
+```
+
+Найди секцию `tls-config tls-common` и убедись, что пути указаны верно:
+```
+tls-config tls-common {
+    private_key_password = whatever
+    private_key_file = /etc/freeradius/3.0/certs/server.key
+    certificate_file = /etc/freeradius/3.0/certs/server.pem
+    ca_file = /etc/freeradius/3.0/certs/ca.pem
+    dh_file = /etc/freeradius/3.0/certs/dh
+    random_file = /dev/urandom
+}
+```
+
+## Шаг 6. Настройка клиентов в FreeRADIUS
+
+```bash
+nano /etc/freeradius/3.0/clients.conf
+```
+
+Добавь в конец файла:
+```
+client CL-1 {
+    ipaddr = 192.168.1.100
+    secret = testing123
+}
+
+client CL-2 {
+    ipaddr = 192.168.1.101
+    secret = testing123
+}
+
+client CL-3 {
+    ipaddr = 192.168.1.102
+    secret = testing123
+}
+```
+
+*(IP-адреса замени на реальные из твоих скриншотов)*
+
+## Шаг 7. Настройка пользователей
+
+```bash
+nano /etc/freeradius/3.0/users
+```
+
+Добавь:
+```
+cl1 Cleartext-Password := "cl1pass"
+cl2 Cleartext-Password := "cl2pass"
+cl3 Cleartext-Password := "cl3pass"
+```
+
+## Шаг 8. Исправление прав доступа к сертификатам
+
+```bash
+chown freerad:freerad /etc/freeradius/3.0/certs/*.pem
+chown freerad:freerad /etc/freeradius/3.0/certs/*.key
+chmod 640 /etc/freeradius/3.0/certs/*.pem
+chmod 640 /etc/freeradius/3.0/certs/*.key
+```
+
+## Шаг 9. Запуск FreeRADIUS
+
+Сначала проверь конфиг:
+```bash
+freeradius -C
+```
+
+Если ошибок нет — запусти сервис:
+```bash
+systemctl start freeradius
+systemctl enable freeradius
+```
+
+Проверь статус:
+```bash
+systemctl status freeradius
+```
+
+Должно быть **active (running)**.
+
+## Шаг 10. Проверка аутентификации
+
+На FR выполни:
+```bash
+echo "User-Name=cl1,User-Password=cl1pass" | radclient -x 127.0.0.1 auth testing123
+```
+
+Должен вернуться **Access-Accept**.
+
+## Шаг 11. Копирование сертификатов на клиенты
+
+На FR выполни:
+```bash
+scp /etc/freeradius/3.0/certs/ca.pem root@192.168.1.100:/etc/ssl/certs/ca.pem
+scp /etc/freeradius/3.0/certs/cl1.pem root@192.168.1.100:/etc/ssl/certs/client.pem
+scp /etc/freeradius/3.0/certs/cl1.key root@192.168.1.100:/etc/ssl/private/client.key
+
+scp /etc/freeradius/3.0/certs/ca.pem root@192.168.1.101:/etc/ssl/certs/ca.pem
+scp /etc/freeradius/3.0/certs/cl2.pem root@192.168.1.101:/etc/ssl/certs/client.pem
+scp /etc/freeradius/3.0/certs/cl2.key root@192.168.1.101:/etc/ssl/private/client.key
+
+scp /etc/freeradius/3.0/certs/ca.pem root@192.168.1.102:/etc/ssl/certs/ca.pem
+scp /etc/freeradius/3.0/certs/cl3.pem root@192.168.1.102:/etc/ssl/certs/client.pem
+scp /etc/freeradius/3.0/certs/cl3.key root@192.168.1.102:/etc/ssl/private/client.key
+```
+
+*(IP-адреса клиентов замени на реальные)*
+
+---
+
+## Настройка клиентов (CL-1, CL-2, CL-3)
+
+На каждом клиенте установи wpa_supplicant:
+```bash
+apt update
+apt install -y wpasupplicant
+```
+
+### На CL-1:
+```bash
+nano /etc/wpa_supplicant/wpa_supplicant.conf
+```
+
+Вставь:
+```
+network={
+    key_mgmt=WPA-EAP
+    eap=TLS
+    identity="cl1"
+    ca_cert="/etc/ssl/certs/ca.pem"
+    client_cert="/etc/ssl/certs/client.pem"
+    private_key="/etc/ssl/private/client.key"
+    private_key_passwd=""
+}
+```
+
+Запусти:
+```bash
+wpa_supplicant -i e0 -c /etc/wpa_supplicant/wpa_supplicant.conf -B
+```
+
+### На CL-2 и CL-3 аналогично, но измени `identity` на `cl2` и `cl3` соответственно.
+
+---
+
+## Итог
+
+- FreeRADIUS установлен и настроен на FR
+- Создан CA и сертификаты для сервера и трёх клиентов
+- Клиенты аутентифицируются по сертификатам через EAP-TLS
+- После успешной аутентификации клиенты получают доступ к интернету (через firewall на FR)
