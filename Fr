@@ -1,3 +1,86 @@
+# FreeRADIUS не отвечает на запрос
+
+Смотри — запрос уходит, но ответа нет вообще (ни `Access-Accept`, ни `Access-Reject`). Значит, FreeRADIUS либо не слушает порт, либо не видит клиента/пользователя.
+
+## Шаг 1. Проверь, слушает ли FreeRADIUS порт 1812
+
+```bash
+netstat -tulpn | grep 1812
+```
+
+Должно показать процесс `freeradius` на порту 1812. Если ничего нет — сервис не запущен.
+
+## Шаг 2. Проверь, есть ли пользователь cl1
+
+```bash
+cat /etc/freeradius/3.0/users | grep cl1
+```
+
+Должна быть строка:
+```
+cl1 Cleartext-Password := "cl1pass"
+```
+
+Если нет — добавь:
+```bash
+nano /etc/freeradius/3.0/users
+```
+
+Добавь в конец:
+```
+cl1 Cleartext-Password := "cl1pass"
+```
+
+## Шаг 3. Проверь clients.conf — должен быть клиент для 127.0.0.1
+
+```bash
+cat /etc/freeradius/3.0/clients.conf | grep -A3 "127.0.0.1"
+```
+
+Должно быть:
+```
+client localhost {
+    ipaddr = 127.0.0.1
+    secret = testing123
+}
+```
+
+Если нет — добавь в конец файла `/etc/freeradius/3.0/clients.conf`:
+```
+client localhost {
+    ipaddr = 127.0.0.1
+    secret = testing123
+}
+```
+
+## Шаг 4. Останови все процессы FreeRADIUS и запусти заново
+
+```bash
+pkill freeradius
+systemctl stop freeradius
+```
+
+Проверь, что порт свободен:
+```bash
+netstat -tulpn | grep 1812
+```
+
+Запусти сервис:
+```bash
+systemctl start freeradius
+```
+
+## Шаг 5. Проверь снова
+
+```bash
+echo "User-Name=cl1,User-Password=cl1pass" | radclient -x 127.0.0.1 auth testing123
+```
+
+Должен прийти **Access-Accept**.
+
+---
+
+**Главное:** FreeRADIUS должен быть запущен как сервис (`systemctl start freeradius`), а не через `freeradius -f` в фоне — иначе он может конфликтовать. И обязательно должен быть клиент `localhost` в `clients.conf` с секретом `testing123`.
 # Установка и настройка FreeRADIUS с сертификатами на Debian 13
 
 ## Шаг 1. Установка FreeRADIUS и OpenSSL
