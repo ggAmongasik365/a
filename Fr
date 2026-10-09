@@ -1,21 +1,21 @@
-# Развёртывание FreeRADIUS с сертификатами на Debian 13
+# Развёртывание FreeRADIUS с сертификатом для одного клиента (чистая установка)
 
 ## Топология
-- **FR** — сервер FreeRADIUS (шлюз)
-- **Cl1, Cl2, Cl3** — клиенты
+- **FR**: ens3 (DHCP, интернет), ens4 = 192.168.1.1
+- **Cl1**: 192.168.1.100, шлюз 192.168.1.1
 
 ---
 
-## Шаг 1. Установка FreeRADIUS и OpenSSL
+## ШАГ 1. Установка FreeRADIUS на FR
 
 ```bash
 apt update
 apt install -y freeradius freeradius-utils openssl
 ```
 
-## Шаг 2. Генерация сертификатов
+---
 
-Переходим в директорию с сертификатами:
+## ШАГ 2. Генерация сертификатов на FR
 
 ```bash
 cd /etc/freeradius/3.0/certs
@@ -41,35 +41,9 @@ mv client.pem cl1.pem
 mv client.key cl1.key
 ```
 
-### Создаём сертификат для Cl2:
+---
 
-```bash
-nano client.cnf
-```
-
-Меняем `commonName = "CL-1"` на `commonName = "CL-2"` и `emailAddress` на `cl2@au-team.irpo`. Сохраняем (Ctrl+O, Enter, Ctrl+X).
-
-```bash
-make client.pem
-mv client.pem cl2.pem
-mv client.key cl2.key
-```
-
-### Создаём сертификат для Cl3:
-
-```bash
-nano client.cnf
-```
-
-Меняем `commonName = "CL-2"` на `commonName = "CL-3"` и `emailAddress` на `cl3@au-team.irpo`. Сохраняем.
-
-```bash
-make client.pem
-mv client.pem cl3.pem
-mv client.key cl3.key
-```
-
-## Шаг 3. Установка прав на сертификаты
+## ШАГ 3. Установка прав на сертификаты
 
 ```bash
 chown freerad:freerad /etc/freeradius/3.0/certs/*.pem
@@ -78,11 +52,34 @@ chmod 640 /etc/freeradius/3.0/certs/*.pem
 chmod 640 /etc/freeradius/3.0/certs/*.key
 ```
 
-## Шаг 4. Проверка конфигурации
+---
 
-**Ничего не редактируем в eap.conf!** Он уже настроен на поддержку TLS из коробки.
+## ШАГ 4. Настройка FreeRADIUS
 
-Проверяем конфиг:
+### 4.1. Восстанавливаем оригинальный файл eap:
+
+```bash
+rm -f /etc/freeradius/3.0/mods-enabled/eap
+cp /etc/freeradius/3.0/mods-available/eap /etc/freeradius/3.0/mods-enabled/eap
+```
+
+### 4.2. Меняем default_eap_type на tls:
+
+```bash
+sed -i 's/default_eap_type = md5/default_eap_type = tls/' /etc/freeradius/3.0/mods-enabled/eap
+```
+
+### 4.3. Добавляем пользователя cl1:
+
+```bash
+echo 'cl1 Cleartext-Password := "cl1pass"' >> /etc/freeradius/3.0/users
+```
+
+---
+
+## ШАГ 5. Проверка и запуск FreeRADIUS
+
+### Проверяем конфиг:
 
 ```bash
 freeradius -C
@@ -90,7 +87,7 @@ freeradius -C
 
 Должно показать: `Configuration appears to be OK`
 
-## Шаг 5. Запуск FreeRADIUS
+### Запускаем сервис:
 
 ```bash
 systemctl start freeradius
@@ -100,7 +97,7 @@ systemctl status freeradius
 
 Должно быть **active (running)**.
 
-## Шаг 6. Проверка аутентификации
+### Проверяем аутентификацию:
 
 ```bash
 echo "User-Name=cl1,User-Password=cl1pass" | radclient -x 127.0.0.1 auth testing123
@@ -108,44 +105,31 @@ echo "User-Name=cl1,User-Password=cl1pass" | radclient -x 127.0.0.1 auth testing
 
 Должен прийти **Access-Accept**.
 
-## Шаг 7. Копирование сертификатов на клиентов
+---
 
-На FR выполняем:
+## ШАГ 6. Копирование сертификата на клиента Cl1
+
+### На FR выполняем:
 
 ```bash
-scp /etc/freeradius/3.0/certs/ca.pem root@<IP_Cl1>:/etc/ssl/certs/ca.pem
-scp /etc/freeradius/3.0/certs/cl1.pem root@<IP_Cl1>:/etc/ssl/certs/client.pem
-scp /etc/freeradius/3.0/certs/cl1.key root@<IP_Cl1>:/etc/ssl/private/client.key
-
-scp /etc/freeradius/3.0/certs/ca.pem root@<IP_Cl2>:/etc/ssl/certs/ca.pem
-scp /etc/freeradius/3.0/certs/cl2.pem root@<IP_Cl2>:/etc/ssl/certs/client.pem
-scp /etc/freeradius/3.0/certs/cl2.key root@<IP_Cl2>:/etc/ssl/private/client.key
-
-scp /etc/freeradius/3.0/certs/ca.pem root@<IP_Cl3>:/etc/ssl/certs/ca.pem
-scp /etc/freeradius/3.0/certs/cl3.pem root@<IP_Cl3>:/etc/ssl/certs/client.pem
-scp /etc/freeradius/3.0/certs/cl3.key root@<IP_Cl3>:/etc/ssl/private/client.key
+scp /etc/freeradius/3.0/certs/ca.pem root@192.168.1.100:/etc/ssl/certs/ca.pem
+scp /etc/freeradius/3.0/certs/cl1.pem root@192.168.1.100:/etc/ssl/certs/client.pem
+scp /etc/freeradius/3.0/certs/cl1.key root@192.168.1.100:/etc/ssl/private/client.key
 ```
 
-*(Замени `<IP_Cl1>`, `<IP_Cl2>`, `<IP_Cl3>` на реальные IP клиентов)*
+---
 
-## Шаг 8. Настройка клиентов
+## ШАГ 7. Настройка клиента Cl1
 
-На каждом клиенте (Cl1, Cl2, Cl3):
+### На Cl1:
 
 ```bash
 apt update
 apt install -y wpasupplicant
 ```
 
-### На Cl1:
-
 ```bash
-nano /etc/wpa_supplicant/wpa_supplicant.conf
-```
-
-Вставляем:
-
-```
+cat > /etc/wpa_supplicant/wpa_supplicant.conf << 'EOF'
 network={
     key_mgmt=WPA-EAP
     eap=TLS
@@ -155,63 +139,73 @@ network={
     private_key="/etc/ssl/private/client.key"
     private_key_passwd=""
 }
+EOF
 ```
 
-Запускаем:
+Запускаем wpa_supplicant:
 
 ```bash
-wpa_supplicant -i e0 -c /etc/wpa_supplicant/wpa_supplicant.conf -B
+wpa_supplicant -i ens3 -c /etc/wpa_supplicant/wpa_supplicant.conf -B
 ```
 
-### На Cl2 и Cl3 аналогично, но меняем `identity="cl1"` на `identity="cl2"` и `identity="cl3"` соответственно.
+---
 
-## Шаг 9. Блокировка интернета и разрешение по сертификату
+## ШАГ 8. Блокировка интернета на FR
 
-На FR настраиваем firewall (nftables):
+### Устанавливаем nftables:
 
 ```bash
 apt install -y nftables
-nano /etc/nftables.conf
 ```
 
-Вставляем:
+### Настраиваем firewall:
 
-```nft
+```bash
+cat > /etc/nftables.conf << 'EOF'
 #!/usr/sbin/nft -f
 
 flush ruleset
 
 table ip nat {
     chain postrouting {
-        type nat hook postrouting priority 100;
-        oifname "e0" masquerade
+        type nat hook postrouting priority 100; policy accept
+        meta l4proto { gre, ipip, ospf } counter return
+        masquerade
     }
 }
 
 table ip filter {
     chain forward {
-        type filter hook forward priority 0;
-        policy drop;
+        type filter hook forward priority 0; policy drop
         
-        # Разрешить трафик от аутентифицированных клиентов
-        ip saddr <IP_Cl1> oifname "e0" accept
-        ip saddr <IP_Cl2> oifname "e0" accept
-        ip saddr <IP_Cl3> oifname "e0" accept
+        # Разрешить трафик от аутентифицированного клиента Cl1
+        ip saddr 192.168.1.100 oifname "ens3" accept
         
+        # Разрешить обратный трафик
         ct state established,related accept
     }
 }
+EOF
 ```
 
-*(Замени `<IP_Cl1>`, `<IP_Cl2>`, `<IP_Cl3>` на реальные IP)*
+### Включаем IP-форвардинг:
 
 ```bash
-systemctl restart nftables
+echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+sysctl -p
 ```
 
-## Шаг 10. Финальная проверка
+### Применяем правила:
 
-На каждом клиенте проверяем доступ к интернету:
+```bash
+nft -f /etc/nftables.conf
+```
+
+---
+
+## ШАГ 9. Финальная проверка
+
+### На Cl1 проверяем доступ к интернету:
 
 ```bash
 ping 8.8.8.8
@@ -221,4 +215,10 @@ ping 8.8.8.8
 
 ---
 
-**Итог:** FreeRADIUS развёрнут, сертификаты созданы для всех трёх клиентов, интернет заблокирован по умолчанию и разрешён только после аутентификации по сертификату.
+## Итог
+
+- FreeRADIUS развёрнут на FR с поддержкой EAP-TLS
+- Создан сертификат для Cl1
+- Настроен firewall на FR, который блокирует интернет для клиента по умолчанию
+- После успешной аутентификации через RADIUS клиент Cl1 получает доступ к интернету
+- Клиент может аутентифицироваться и получать доступ к интернету только после предоставления сертификата
