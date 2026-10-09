@@ -1,0 +1,224 @@
+# Развёртывание FreeRADIUS с сертификатом для одного клиента (чистая установка)
+
+## Топология
+- **FR**: ens3 (DHCP, интернет), ens4 = 192.168.1.1
+- **Cl1**: 192.168.1.100, шлюз 192.168.1.1
+
+---
+
+## ШАГ 1. Установка FreeRADIUS на FR
+
+```bash
+apt update
+apt install -y freeradius freeradius-utils openssl
+```
+
+---
+
+## ШАГ 2. Генерация сертификатов на FR
+
+```bash
+cd /etc/freeradius/3.0/certs
+```
+
+### Создаём корневой CA:
+
+```bash
+make ca.pem
+```
+
+### Создаём сертификат сервера:
+
+```bash
+make server.pem
+```
+
+### Создаём сертификат для Cl1:
+
+```bash
+make client.pem
+mv client.pem cl1.pem
+mv client.key cl1.key
+```
+
+---
+
+## ШАГ 3. Установка прав на сертификаты
+
+```bash
+chown freerad:freerad /etc/freeradius/3.0/certs/*.pem
+chown freerad:freerad /etc/freeradius/3.0/certs/*.key
+chmod 640 /etc/freeradius/3.0/certs/*.pem
+chmod 640 /etc/freeradius/3.0/certs/*.key
+```
+
+---
+
+## ШАГ 4. Настройка FreeRADIUS
+
+### 4.1. Восстанавливаем оригинальный файл eap:
+
+```bash
+rm -f /etc/freeradius/3.0/mods-enabled/eap
+cp /etc/freeradius/3.0/mods-available/eap /etc/freeradius/3.0/mods-enabled/eap
+```
+
+### 4.2. Меняем default_eap_type на tls:
+
+```bash
+sed -i 's/default_eap_type = md5/default_eap_type = tls/' /etc/freeradius/3.0/mods-enabled/eap
+```
+
+### 4.3. Добавляем пользователя cl1:
+
+```bash
+echo 'cl1 Cleartext-Password := "cl1pass"' >> /etc/freeradius/3.0/users
+```
+
+---
+
+## ШАГ 5. Проверка и запуск FreeRADIUS
+
+### Проверяем конфиг:
+
+```bash
+freeradius -C
+```
+
+Должно показать: `Configuration appears to be OK`
+
+### Запускаем сервис:
+
+```bash
+systemctl start freeradius
+systemctl enable freeradius
+systemctl status freeradius
+```
+
+Должно быть **active (running)**.
+
+### Проверяем аутентификацию:
+
+```bash
+echo "User-Name=cl1,User-Password=cl1pass" | radclient -x 127.0.0.1 auth testing123
+```
+
+Должен прийти **Access-Accept**.
+
+---
+
+## ШАГ 6. Копирование сертификата на клиента Cl1
+
+### На FR выполняем:
+
+```bash
+scp /etc/freeradius/3.0/certs/ca.pem root@192.168.1.100:/etc/ssl/certs/ca.pem
+scp /etc/freeradius/3.0/certs/cl1.pem root@192.168.1.100:/etc/ssl/certs/client.pem
+scp /etc/freeradius/3.0/certs/cl1.key root@192.168.1.100:/etc/ssl/private/client.key
+```
+
+---
+
+## ШАГ 7. Настройка клиента Cl1
+
+### На Cl1:
+
+```bash
+apt update
+apt install -y wpasupplicant
+```
+
+```bash
+cat > /etc/wpa_supplicant/wpa_supplicant.conf << 'EOF'
+network={
+    key_mgmt=WPA-EAP
+    eap=TLS
+    identity="cl1"
+    ca_cert="/etc/ssl/certs/ca.pem"
+    client_cert="/etc/ssl/certs/client.pem"
+    private_key="/etc/ssl/private/client.key"
+    private_key_passwd=""
+}
+EOF
+```
+
+Запускаем wpa_supplicant:
+
+```bash
+wpa_supplicant -i ens3 -c /etc/wpa_supplicant/wpa_supplicant.conf -B
+```
+
+---
+
+## ШАГ 8. Блокировка интернета на FR
+
+### Устанавливаем nftables:
+
+```bash
+apt install -y nftables
+```
+
+### Настраиваем firewall:
+
+```bash
+cat > /etc/nftables.conf << 'EOF'
+#!/usr/sbin/nft -f
+
+flush ruleset
+
+table ip nat {
+    chain postrouting {
+        type nat hook postrouting priority 100; policy accept
+        meta l4proto { gre, ipip, ospf } counter return
+        masquerade
+    }
+}
+
+table ip filter {
+    chain forward {
+        type filter hook forward priority 0; policy drop
+        
+        # Разрешить трафик от аутентифицированного клиента Cl1
+        ip saddr 192.168.1.100 oifname "ens3" accept
+        
+        # Разрешить обратный трафик
+        ct state established,related accept
+    }
+}
+EOF
+```
+
+### Включаем IP-форвардинг:
+
+```bash
+echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+sysctl -p
+```
+
+### Применяем правила:
+
+```bash
+nft -f /etc/nftables.conf
+```
+
+---
+
+## ШАГ 9. Финальная проверка
+
+### На Cl1 проверяем доступ к интернету:
+
+```bash
+ping 8.8.8.8
+```
+
+Должен работать только после успешной аутентификации по сертификату.
+
+---
+
+## Итог
+
+- FreeRADIUS развёрнут на FR с поддержкой EAP-TLS
+- Создан сертификат для Cl1
+- Настроен firewall на FR, который блокирует интернет для клиента по умолчанию
+- После успешной аутентификации через RADIUS клиент Cl1 получает доступ к интернету
+- Клиент может аутентифицироваться и получать доступ к интернету только после предоставления сертификата
