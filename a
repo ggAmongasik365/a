@@ -452,7 +452,408 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
+}б
+
+
+# Инструкция по настройке LibreNMS
+
+## Топология и IP
+
+- **ISP** (MikroTik): 172.16.1.1/28
+- **HQ-RTR** (MikroTik): 172.16.1.2/28 (e0), 192.168.100.1/27 (e1)
+- **HQ-SRV** (Debian 13): 192.168.100.2/27, шлюз 192.168.100.1
+
+⚠️ На схеме у HQ-RTR e1 и HQ-SRV e0 одинаковый IP 192.168.100.2/27 — это конфликт. Я использую HQ-RTR e1 = **192.168.100.1/27**, HQ-SRV e0 = **192.168.100.2/27**.
+
+---
+
+## УСТРОЙСТВО: ISP (MikroTik)
+
+### Настройка SNMP
+
+```
+/snmp community add name=public address=172.16.1.0/28 security=none
+```
+
+```
+/snmp set enabled=yes
+```
+
+### Настройка отправки syslog на HQ-SRV
+
+```
+/system logging action add name=librenms remote=192.168.100.2 remote-port=514 src-address=172.16.1.1
+```
+
+```
+/system logging add action=librenms topics=info,error,critical
+```
+
+---
+
+## УСТРОЙСТВО: HQ-RTR (MikroTik)
+
+### Настройка SNMP
+
+```
+/snmp community add name=public address=172.16.1.0/28 security=none
+```
+
+```
+/snmp community add name=public address=192.168.100.0/27 security=none
+```
+
+```
+/snmp set enabled=yes
+```
+
+### Настройка отправки syslog на HQ-SRV
+
+```
+/system logging action add name=librenms remote=192.168.100.2 remote-port=514 src-address=172.16.1.2
+```
+
+```
+/system logging add action=librenms topics=info,error,critical
+```
+
+---
+
+## УСТРОЙСТВО: HQ-SRV (Debian 13)
+
+### Проверка версии PHP
+
+```bash
+php -v
+```
+
+⚠️ Запомни версию (8.2 или 8.3). В командах ниже я использую `8.2`. Если у тебя 8.3 — замени `8.2` на `8.3` во всех путях.
+
+### Установка всех пакетов одной командой
+
+```bash
+sudo apt install -y nginx php-fpm php-cli php-common php-curl php-gd php-json php-mbstring php-mysql php-snmp php-xml php-zip php-intl php-bcmath mariadb-server mariadb-client snmp snmpd rrdtool fping python3-pip python3-pymysql python3-redis python3-systemd composer graphviz imagemagick whois nmap mtr-tiny ipmitool acl unzip sudo nano curl wget git
+```
+
+### Создание пользователя LibreNMS
+
+```bash
+sudo useradd librenms -d /opt/librenms -M -r -s /bin/bash
+```
+
+### Скачивание LibreNMS и настройка прав
+
+```bash
+cd /opt && sudo git clone https://github.com/librenms/librenms.git && sudo chown -R librenms:librenms /opt/librenms && sudo chmod -R 775 /opt/librenms
+```
+
+```bash
+sudo setfacl -d -m g::rwx /opt/librenms/rrd /opt/librenms/logs /opt/librenms/bootstrap/cache/ /opt/librenms/storage/
+```
+
+```bash
+sudo setfacl -R -m g::rwx /opt/librenms/rrd /opt/librenms/logs /opt/librenms/bootstrap/cache/ /opt/librenms/storage/
+```
+
+### Установка Composer-зависимостей
+
+```bash
+sudo su - librenms && cd /opt/librenms && ./scripts/composer_wrapper.php install --no-dev && exit
+```
+
+### Запуск и защита MariaDB
+
+```bash
+sudo systemctl enable mariadb && sudo systemctl start mariadb
+```
+
+```bash
+sudo mysql_secure_installation
+```
+
+Ответы на вопросы:
+- Enter current password: **Enter** (пусто)
+- Set root password? **Y**, пароль: `root123`
+- Remove anonymous users? **Y**
+- Disallow root login remotely? **Y**
+- Remove test database? **Y**
+- Reload privilege tables? **Y**
+
+### Создание базы данных LibreNMS
+
+```bash
+sudo mysql -u root -proot123 -e "CREATE DATABASE librenms CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER 'librenms'@'localhost' IDENTIFIED BY 'librenms_password'; GRANT ALL PRIVILEGES ON librenms.* TO 'librenms'@'localhost'; FLUSH PRIVILEGES;"
+```
+
+### Создание конфига MariaDB
+
+```bash
+sudo bash -c 'echo -e "[mysqld]\ninnodb_file_per_table=1\nlower_case_table_names=0" > /etc/mysql/mariadb.conf.d/99-librenms.cnf'
+```
+
+```bash
+sudo systemctl restart mariadb
+```
+
+### Настройка PHP-FPM
+
+```bash
+sudo sed -i 's/;date.timezone =/date.timezone = Europe\/Moscow/' /etc/php/8.2/fpm/php.ini
+```
+
+```bash
+sudo sed -i 's/memory_limit = 128M/memory_limit = 512M/' /etc/php/8.2/fpm/php.ini
+```
+
+```bash
+sudo sed -i 's/max_execution_time = 30/max_execution_time = 120/' /etc/php/8.2/fpm/php.ini
+```
+
+```bash
+sudo systemctl restart php8.2-fpm
+```
+
+### Настройка Nginx
+
+```bash
+sudo bash -c 'cat > /etc/nginx/sites-available/librenms << EOF
+server {
+    listen 80;
+    server_name 192.168.100.2;
+    root /opt/librenms/html;
+    index index.php;
+    charset utf-8;
+    gzip on;
+    gzip_types text/css application/javascript text/javascript application/x-javascript image/svg+xml text/plain text/xsd text/xsl text/xml image/x-icon;
+    location / {
+        try_files \$uri \$uri/ /index.php?\$query_string;
+    }
+    location ~ [^/]\.php(/|\$) {
+        fastcgi_pass unix:/run/php/php8.2-fpm.sock;
+        fastcgi_split_path_info ^(.+\.php)(/.+)\$;
+        include fastcgi.conf;
+    }
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
 }
+EOF'
+```
+
+```bash
+sudo rm -f /etc/nginx/sites-enabled/default && sudo ln -s /etc/nginx/sites-available/librenms /etc/nginx/sites-enabled/librenms
+```
+
+```bash
+sudo nginx -t && sudo systemctl restart nginx
+```
+
+### Настройка SNMP на сервере
+
+```bash
+sudo bash -c 'cat > /etc/snmp/snmpd.conf << EOF
+rocommunity public 127.0.0.1
+rocommunity public 192.168.100.0/27
+sysLocation "Server Room, Novatech HQ"
+sysContact admin@novatech.local
+agentAddress udp:161
+EOF'
+```
+
+```bash
+sudo systemctl restart snmpd && sudo systemctl enable snmpd
+```
+
+### Проверка SNMP
+
+```bash
+snmpwalk -v2c -c public 127.0.0.1 sysDescr.0
+```
+
+Должен вернуться ответ с описанием системы.
+
+### Настройка Cron и logrotate
+
+```bash
+sudo cp /opt/librenms/librenms.nonroot.cron /etc/cron.d/librenms
+```
+
+```bash
+sudo cp /opt/librenms/misc/librenms.logrotate /etc/logrotate.d/librenms
+```
+
+### Веб-установка LibreNMS
+
+Открой браузер на своём компьютере и перейди:
+
+```
+http://192.168.100.2/install.php
+```
+
+**Шаги:**
+1. **Database settings:**
+   - Database host: `localhost`
+   - Database port: `3306`
+   - Database username: `librenms`
+   - Database password: `librenms_password`
+   - Database name: `librenms`
+   - Нажми **Check Credentials** → **Build Database**
+2. **Add Admin User:**
+   - Username: `admin`
+   - Password: `admin123`
+   - Email: `admin@novatech.local`
+   - Нажми **Add User** → **Finish Install**
+
+### Удаление установщика
+
+```bash
+sudo rm /opt/librenms/html/install.php
+```
+
+### Вход в LibreNMS
+
+```
+http://192.168.100.2/
+```
+
+Логин: `admin`, пароль: `admin123`
+
+---
+
+## ДОБАВЛЕНИЕ УСТРОЙСТВ В LIBRENMS (через веб-интерфейс)
+
+### Добавление ISP
+
+1. **Devices** → **Add Device**
+2. Hostname: `172.16.1.1`
+3. SNMP Version: `v2c`
+4. SNMP Community: `public`
+5. Нажми **Add Device**
+
+### Добавление HQ-RTR
+
+1. **Devices** → **Add Device**
+2. Hostname: `172.16.1.2`
+3. SNMP Version: `v2c`
+4. SNMP Community: `public`
+5. Нажми **Add Device**
+
+### Добавление HQ-SRV (сам сервер)
+
+1. **Devices** → **Add Device**
+2. Hostname: `127.0.0.1`
+3. SNMP Version: `v2c`
+4. SNMP Community: `public`
+5. Нажми **Add Device**
+
+### Ручной запуск опроса
+
+```bash
+sudo su - librenms && cd /opt/librenms && ./poller.php -h 172.16.1.1 && ./poller.php -h 172.16.1.2 && ./poller.php -h 127.0.0.1 && exit
+```
+
+---
+
+## НАСТРОЙКА АЛЕРТОВ (в веб-интерфейсе LibreNMS)
+
+### Правило 1: Interface Down
+
+1. **Alerts** → **Alert Rules** → **Add New Rule**
+2. Name: `Interface Down`
+3. Query: `%macros.interface_down = 1`
+4. Severity: `critical`
+5. Delay: `300`
+6. Нажми **Save**
+
+### Правило 2: High CPU
+
+1. **Alerts** → **Alert Rules** → **Add New Rule**
+2. Name: `High CPU Usage`
+3. Query: `%processor.processor_usage > 90`
+4. Severity: `warning`
+5. Delay: `300`
+6. Нажми **Save**
+
+### Правило 3: Device Unreachable
+
+1. **Alerts** → **Alert Rules** → **Add New Rule**
+2. Name: `Device Unreachable`
+3. Query: `%devices.status = 0`
+4. Severity: `critical`
+5. Delay: `120`
+6. Нажми **Save**
+
+---
+
+## НАСТРОЙКА SYSLOG (централизованное журналирование)
+
+### Включение syslog в LibreNMS
+
+```bash
+sudo sed -i '/\$config\['"'"'enable_syslog'"'"'\]/d' /opt/librenms/config.php
+```
+
+```bash
+sudo sed -i '/?>$/i $config['"'"'enable_syslog'"'"'] = 1;' /opt/librenms/config.php
+```
+
+### Проверка в LibreNMS
+
+1. Зайди в **Devices** → выбери **HQ-RTR** → вкладка **Syslog**
+2. Должны появиться логи с MikroTik
+
+---
+
+## ТЕСТИРОВАНИЕ АЛЕРТОВ
+
+### Тест Interface Down (на HQ-RTR)
+
+```
+/interface ethernet disable [find name=ether2]
+```
+
+Подожди 5 минут. В LibreNMS должен появиться алерт.
+
+### Включение обратно (на HQ-RTR)
+
+```
+/interface ethernet enable [find name=ether2]
+```
+
+### Проверка алертов
+
+В LibreNMS: **Alerts** → **Alert Log** — должны появиться записи.
+
+---
+
+## СПИСОК СКРИНШОТОВ
+
+| № | Устройство | Что скринить |
+|---|---|---|
+| 1 | HQ-SRV | Терминал: команда `apt install -y nginx php-fpm ...` |
+| 2 | HQ-SRV | Терминал: команда `git clone https://github.com/librenms/librenms.git` |
+| 3 | HQ-SRV | Терминал: команда `sudo mysql -u root -proot123 -e "CREATE DATABASE..."` |
+| 4 | HQ-SRV | Файл `/etc/nginx/sites-available/librenms` (команда `cat /etc/nginx/sites-available/librenms`) |
+| 5 | HQ-SRV | Файл `/etc/cron.d/librenms` (команда `cat /etc/cron.d/librenms`) |
+| 6 | HQ-SRV | Браузер: страница `http://192.168.100.2/install.php` |
+| 7 | HQ-SRV | Веб-интерфейс: форма Add Device с IP 172.16.1.1 |
+| 8 | HQ-SRV | Веб-интерфейс: главная панель LibreNMS со списком устройств |
+| 9 | HQ-SRV | Веб-интерфейс: страница устройства HQ-RTR с графиками |
+| 10 | HQ-SRV | Веб-интерфейс: вкладка Ports у HQ-RTR |
+| 11 | HQ-SRV | Веб-интерфейс: страница Alert Rules со всеми правилами |
+| 12 | HQ-SRV | Веб-интерфейс: вкладка Syslog у HQ-RTR |
+
+---
+
+## ПРОВЕРКА ВАЛИДАЦИИ
+
+```bash
+sudo su - librenms && cd /opt/librenms && ./validate.php && exit
+```
+
+Если есть ошибки — напиши текст ошибки, разберём.
+
+
 -----------------------------------------------------------
 
 systemctl restart nginx
