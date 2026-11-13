@@ -1,3 +1,57 @@
+Проблема: ты в папке `/root`, а config.php лежит в `/opt/librenms`. Вот команды — копируй по одной:
+
+```bash
+cd /opt/librenms
+```
+
+```bash
+cp config.php.default config.php
+```
+
+```bash
+sed -i "s/'db_user' => ''/'db_user' => 'librenms'/" config.php
+```
+
+```bash
+sed -i "s/'db_pass' => ''/'db_pass' => 'librenms_password'/" config.php
+```
+
+```bash
+sed -i "s/'db_name' => ''/'db_name' => 'librenms'/" config.php
+```
+
+```bash
+grep -E "db_user|db_pass|db_name" config.php
+```
+
+Если grep покажет три строки с librenms, librenms_password, librenms — значит конфиг правильный. Дальше:
+
+```bash
+chown librenms:librenms config.php
+```
+
+```bash
+su - librenms -c "cd /opt/librenms && php artisan migrate --force"
+```
+
+```bash
+su - librenms -c "cd /opt/librenms && php artisan librenms:add-user admin admin@novatech.local admin123 10"
+```
+
+Если `add-user` снова выдаст ошибку — выполни это вместо неё:
+
+```bash
+mysql -u root -proot123 librenms -e "INSERT INTO users (username, password, realname, email, descr, role, created_at, updated_at) VALUES ('admin', '$(php -r "echo password_hash(\"admin123\", PASSWORD_BCRYPT);")', 'Admin', 'admin@novatech.local', 'Administrator', 10, NOW(), NOW());"
+```
+
+После этого открывай `http://192.168.100.2/login` — логин `admin`, пароль `admin123`.
+
+
+
+
+
+
+
 ```bash
 cd /opt/librenms && cp config.php.default config.php
 ```
