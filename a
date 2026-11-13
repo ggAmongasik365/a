@@ -1,3 +1,69 @@
+Вижу две проблемы на скриншоте:
+
+1. **Таблица `users` не существует** — миграции не прошли, потому что LibreNMS лез в БД без пароля.
+2. **PHP Warning: chown() Unable to find uid** — пользователь `librenms` не создан в системе.
+
+Выполни эти команды **по порядку** на HQ-SRV:
+
+### 1. Создаём пользователя librenms в системе
+
+```bash
+useradd librenms -d /opt/librenms -M -r -s /bin/bash
+```
+
+### 2. Назначаем права на папки
+
+```bash
+chown -R librenms:librenms /opt/librenms
+chmod -R 775 /opt/librenms
+```
+
+### 3. Запускаем миграции (теперь config.php с правильным паролем — должно сработать)
+
+```bash
+su - librenms -c "cd /opt/librenms && php artisan migrate --force"
+```
+
+### 4. Создаём админа через SQL (напрямую в БД)
+
+```bash
+mysql -u root -proot123 librenms -e "INSERT INTO users (username, password, realname, email, descr, role, created_at, updated_at) VALUES ('admin', '\$(php -r \"echo password_hash('admin123', PASSWORD_BCRYPT);\")', 'Admin', 'admin@novatech.local', 'Administrator', 10, NOW(), NOW());"
+```
+
+Если команда выше выдаст ошибку — выполни эту (она создаёт хэш заранее):
+
+```bash
+HASH=$(php -r "echo password_hash('admin123', PASSWORD_BCRYPT);") && mysql -u root -proot123 librenms -e "INSERT INTO users (username, password, realname, email, descr, role, created_at, updated_at) VALUES ('admin', '$HASH', 'Admin', 'admin@novatech.local', 'Administrator', 10, NOW(), NOW());"
+```
+
+### 5. Проверка
+
+```bash
+mysql -u root -proot123 librenms -e "SELECT username, email, role FROM users;"
+```
+
+Должна вывести строку с `admin`.
+
+### 6. Открывай браузер
+
+```
+http://192.168.100.2/
+```
+
+Логин: `admin`, пароль: `admin123`
+
+---
+
+**Если шаг 3 снова выдаст ошибку** — скинь текст ошибки. Скорее всего теперь всё пройдёт, потому что в config.php уже записан пароль `librenms_password`.
+
+
+
+
+
+
+
+
+
 Две проблемы:
 1. **config.php не содержит пароль** — LibreNMS лезет в БД без пароля
 2. **Таблица users не создана** — миграции не прошли из-за пункта 1
