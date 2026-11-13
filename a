@@ -1,3 +1,38 @@
+```bash
+cd /opt/librenms && cp config.php.default config.php
+```
+```bash
+sed -i "s|'db_host' => 'localhost'|'db_host' => 'localhost'|; s|'db_user' => ''|'db_user' => 'librenms'|; s|'db_pass' => ''|'db_pass' => 'librenms_password'|; s|'db_name' => ''|'db_name' => 'librenms'|" config.php
+```
+```bash
+grep -E "db_user|db_pass|db_name" config.php
+```
+```bash
+chown librenms:librenms config.php
+```
+```bash
+su - librenms -c "cd /opt/librenms && php artisan migrate --force"
+```
+```bash
+su - librenms -c "cd /opt/librenms && php artisan user:create --username admin --password admin123 --email admin@novatech.local --name Administrator"
+```
+```bash
+sed -i 's|root /opt/librenms/html;|root /opt/librenms;|' /etc/nginx/sites-available/librenms
+```
+```bash
+nginx -t && systemctl restart nginx
+```
+```bash
+systemctl restart php8.4-fpm
+```
+```bash
+snmpwalk -v2c -c public 127.0.0.1 sysDescr.0
+```
+
+Открывай `http://192.168.100.2/` — логин `admin` / `admin123`.
+
+
+
 
 su - librenms -c "cd /opt/librenms && php artisan migrate --no-interaction"
 
