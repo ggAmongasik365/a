@@ -1,5 +1,106 @@
+Две проблемы:
+1. **config.php не содержит пароль** — LibreNMS лезет в БД без пароля
+2. **Таблица users не создана** — миграции не прошли из-за пункта 1
+
+Выполни эти команды **по порядку** на HQ-SRV:
+
+### 1. Полностью перезаписываем config.php через PHP (это надёжнее sed)
+
+```bash
+php -r "
+file_put_contents('/opt/librenms/config.php', '<?php
+\$config[\"db_host\"] = \"localhost\";
+\$config[\"db_port\"] = 3306;
+\$config[\"db_user\"] = \"librenms\";
+\$config[\"db_pass\"] = \"librenms_password\";
+\$config[\"db_name\"] = \"librenms\";
+\$config[\"db_socket\"] = \"\";
+\$config[\"enable_syslog\"] = 1;
+\$config[\"install_dir\"] = \"/opt/librenms\";
+\$config[\"snmp\"][\"community\"] = [\"public\"];
+\$config[\"auth_mechanism\"] = \"mysql\";
+\$config[\"update_channel\"] = \"release\";
+\$config[\"fping\"] = \"/usr/bin/fping\";
+');
+chown('librenms', '/opt/librenms/config.php');
+chgrp('librenms', '/opt/librenms/config.php');
+echo 'Config OK';
+"
+```
+
+### 2. Проверяем, что пароль записался
+
+```bash
+grep db_pass /opt/librenms/config.php
+```
+
+Должно вывести строку с `librenms_password`. Если вывело — идём дальше.
+
+### 3. Запускаем миграции от имени librenms (НЕ от root!)
+
+```bash
+su - librenms -c "cd /opt/librenms && php artisan migrate --force"
+```
+
+### 4. Создаём админа
+
+```bash
+su - librenms -c "cd /opt/librenms && php artisan librenms:add-user admin admin@novatech.local admin123 10"
+```
+
+Если команда `add-user` не найдена — создай пользователя напрямую в БД:
+
+```bash
+mysql -u root -proot123 librenms -e "INSERT INTO users (username, password, realname, email, descr, role, created_at, updated_at) VALUES ('admin', '\$(php -r \"echo password_hash('admin123', PASSWORD_BCRYPT);\")', 'Admin', 'admin@novatech.local', 'Administrator', 10, NOW(), NOW());"
+```
+
+### 5. Открывай браузер
+
+```
+http://192.168.100.2/
+```
+
+Логин: `admin`, пароль: `admin123`
+
+---
+
+**Если шаг 1 выдаст ошибку** — скинь текст ошибки. Скорее всего проблема в кавычках при копировании. Тогда сделай через nano:
+
+```bash
+nano /opt/librenms/config.php
+```
+
+Удали всё содержимое (Ctrl+K несколько раз) и вставь:
+
+```php
+<?php
+$config["db_host"] = "localhost";
+$config["db_port"] = 3306;
+$config["db_user"] = "librenms";
+$config["db_pass"] = "librenms_password";
+$config["db_name"] = "librenms";
+$config["db_socket"] = "";
+$config["enable_syslog"] = 1;
+$config["install_dir"] = "/opt/librenms";
+$config["snmp"]["community"] = ["public"];
+$config["auth_mechanism"] = "mysql";
+$config["update_channel"] = "release";
+$config["fping"] = "/usr/bin/fping";
+```
+
+Сохрани (Ctrl+O, Enter, Ctrl+X) и продолжай с шага 3.
+
+
+
+
+
+
+
 
 Проблема ясна: в config.php **не записан пароль**. LibreNMS лезет в базу без пароля (`using password: NO`). Мои sed-команды не сработали, потому что формат файла другой.
+
+
+
 
 Выполни **одну команду** — она полностью перезапишет config.php с правильными данными:
 
