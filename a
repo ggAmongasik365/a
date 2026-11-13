@@ -1,3 +1,52 @@
+
+Проблема ясна: в config.php **не записан пароль**. LibreNMS лезет в базу без пароля (`using password: NO`). Мои sed-команды не сработали, потому что формат файла другой.
+
+Выполни **одну команду** — она полностью перезапишет config.php с правильными данными:
+
+```bash
+php -r "
+file_put_contents('/opt/librenms/config.php', '<?php
+\$config[\'db_host\'] = \'localhost\';
+\$config[\'db_port\'] = 3306;
+\$config[\'db_user\'] = \'librenms\';
+\$config[\'db_pass\'] = \'librenms_password\';
+\$config[\'db_name\'] = \'librenms\';
+\$config[\'db_socket\'] = \'\';
+\$config[\'enable_syslog\'] = 1;
+\$config[\'install_dir\'] = \'/opt/librenms\';
+\$config[\'snmp\'][\'community\'] = [\'public\'];
+\$config[\'auth_mechanism\'] = \'mysql\';
+\$config[\'update_channel\'] = \'release\';
+\$config[\'fping\'] = \'/usr/bin/fping\';
+');
+chown('librenms:librenms', '/opt/librenms/config.php');
+echo 'Config written OK';
+"
+```
+
+После этого проверь:
+```bash
+grep -E "db_user|db_pass|db_name" /opt/librenms/config.php
+```
+
+Должно вывести три строки с `librenms`, `librenms_password`, `librenms`.
+
+Если вывело — запускай миграции:
+```bash
+su - librenms -c "cd /opt/librenms && php artisan migrate --force"
+```
+
+Если снова ошибка "no commands defined in librenms namespace" — значит в твоей версии команды нет. Тогда создай пользователя напрямую в БД:
+```bash
+mysql -u root -proot123 librenms -e "INSERT INTO users (username, password, realname, email, descr, role, created_at, updated_at) VALUES ('admin', '$(php -r "echo password_hash(\"admin123\", PASSWORD_BCRYPT);")', 'Admin', 'admin@novatech.local', 'Administrator', 10, NOW(), NOW());"
+```
+
+После этого открывай `http://192.168.100.2/login` — логин `admin`, пароль `admin123`.
+
+
+
+
+
 Проблема: ты в папке `/root`, а config.php лежит в `/opt/librenms`. Вот команды — копируй по одной:
 
 ```bash
