@@ -1,4 +1,9 @@
 
+su - librenms -c "cd /opt/librenms && php artisan migrate --no-interaction"
+
+su - librenms -c "cd /opt/librenms && php artisan librenms:add-user admin admin@novatech.local admin123 10"
+
+
 [HQ-SRV]
 php -v
 sudo apt install -y nginx php-fpm php-cli php-common php-curl php-gd php-json php-mbstring php-mysql php-snmp php-xml php-zip php-intl php-bcmath mariadb-server mariadb-client snmp snmpd rrdtool fping python3-pip python3-pymysql python3-redis python3-systemd composer graphviz imagemagick whois nmap mtr-tiny ipmitool acl unzip sudo nano curl wget git
