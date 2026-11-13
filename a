@@ -2,6 +2,42 @@
 su - librenms -c "cd /opt/librenms && php artisan migrate --no-interaction"
 
 su - librenms -c "cd /opt/librenms && php artisan librenms:add-user admin admin@novatech.local admin123 10"
+# 1. Исправляем права на папки
+chown -R librenms:librenms /opt/librenms/logs /opt/librenms/storage /opt/librenms/bootstrap/cache /opt/librenms/rrd
+chmod -R 775 /opt/librenms/logs /opt/librenms/storage /opt/librenms/bootstrap/cache /opt/librenms/rrd
+
+# 2. Перезаписываем конфиг Nginx ПРАВИЛЬНО (добавлен SCRIPT_FILENAME)
+cat > /etc/nginx/sites-available/librenms << 'EOF'
+server {
+    listen 80;
+    server_name 192.168.100.2;
+    root /opt/librenms;
+    index index.php index.html;
+    charset utf-8;
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+    location ~ \.php$ {
+        fastcgi_pass unix:/run/php/php8.4-fpm.sock;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+}
+EOF
+
+# 3. Перезапускаем Nginx
+nginx -t && systemctl restart nginx
+
+# 4. Запускаем миграции БД (от имени librenms)
+su - librenms -c "cd /opt/librenms && php artisan migrate --no-interaction --force"
+
+# 5. Создаём админа через SQL напрямую (раз artisan команда не работает)
+mysql -u root -proot123 librenms -e "INSERT INTO users (username, password, realname, email, descr, role) VALUES ('admin', '\$2y\$10\$jB7lKxQxQxQxQxQxQxQxQeQxQxQxQxQxQxQxQxQxQxQxQxQxQ', 'Administrator', 'admin@novatech.local', 'Default admin account', 10);" 2>/dev/null || true
+
+# 6. Если INSERT выше не сработал — создаём хэш пароля и вставляем
+PASS_HASH=$(php -r "echo password_hash('admin123', PASSWORD_BCRYPT);")
+mysql -u root -proot123 librenms -e "DELETE FROM users WHERE username='admin'; INSERT INTO users (username, password, realname, email, descr, role, created_at, updated_at) VALUES ('admin', '$PASS_HASH', 'Administrator', 'admin@novatech.local', 'Default admin account', 10, NOW(), NOW());"
 
 
 [HQ-SRV]
