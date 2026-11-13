@@ -272,3 +272,30 @@ sed -i 's/memory_limit = 128M/memory_limit = 512M/' /etc/php/8.4/fpm/php.ini
 sed -i 's/max_execution_time = 30/max_execution_time = 120/' /etc/php/8.4/fpm/php.ini
 systemctl restart php8.4-fpm
 
+
+ls /opt/librenms/ | grep -E "html|public|install"
+
+cat > /etc/nginx/sites-available/librenms << 'EOF'
+server {
+    listen 80;
+    server_name 192.168.100.2;
+    root /opt/librenms;
+    index index.php;
+    charset utf-8;
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+    location ~ [^/]\.php(/|$) {
+        fastcgi_pass unix:/run/php/php8.4-fpm.sock;
+        fastcgi_split_path_info ^(.+\.php)(/.+)$;
+        include fastcgi.conf;
+    }
+}
+EOF
+
+rm -f /etc/nginx/sites-enabled/default
+ln -sf /etc/nginx/sites-available/librenms /etc/nginx/sites-enabled/librenms
+nginx -t
+systemctl restart nginx
+
+
