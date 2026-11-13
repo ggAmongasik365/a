@@ -299,3 +299,59 @@ nginx -t
 systemctl restart nginx
 
 
+В новых версиях LibreNMS веб-инсталлятор удалён. Установка теперь через командную строку. Выполни эти команды на HQ-SRV:
+
+```bash
+cd /opt/librenms
+```
+
+```bash
+cp config.php.default config.php
+```
+
+```bash
+sed -i "s/\$config\['db_host'\] = 'localhost';/\$config\['db_host'\] = 'localhost';/" config.php
+```
+
+```bash
+sed -i "s/\$config\['db_port'\] = 3306;/\$config\['db_port'\] = 3306;/" config.php
+```
+
+```bash
+sed -i "s/\$config\['db_user'\] = '';/\$config\['db_user'\] = 'librenms';/" config.php
+```
+
+```bash
+sed -i "s/\$config\['db_pass'\] = '';/\$config\['db_pass'\] = 'librenms_password';/" config.php
+```
+
+```bash
+sed -i "s/\$config\['db_name'\] = '';/\$config\['db_name'\] = 'librenms';/" config.php
+```
+
+```bash
+php artisan migrate --no-interaction
+```
+
+```bash
+php artisan librenms:user:add admin admin@novatech.local admin123 10
+```
+
+```bash
+chown librenms:librenms config.php
+```
+
+```bash
+./validate.php
+```
+
+После этого открывай в браузере:
+
+```
+http://192.168.100.2/
+```
+
+Логин: `admin`, пароль: `admin123`
+
+Если `php artisan migrate` выдаст ошибку — скинь текст ошибки.
+
