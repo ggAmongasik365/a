@@ -240,3 +240,26 @@ fi
 
 echo "=== DONE ==="
 echo "Open: http://192.168.100.2/install.php"
+
+
+Nginx отвечает, но не находит файл. Проверим, где проблема.
+
+Выполни эти команды на HQ-SRV и скинь вывод:
+
+```bash
+ls /opt/librenms/html/install.php
+```
+
+```bash
+ls /opt/librenms/html/
+```
+
+```bash
+cat /etc/nginx/sites-enabled/librenms
+```
+
+```bash
+ls -la /opt/librenms/
+```
+
+Скорее всего либо файл `install.php` лежит не там, либо Nginx смотрит не в ту папку.
