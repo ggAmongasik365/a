@@ -1,3 +1,60 @@
+Файл `addhost.php` в новой версии переименован. Ищем и используем artisan:
+
+### 1. Найти правильный файл
+
+```bash
+find /opt/librenms -maxdepth 2 -name "*add*device*" 2>/dev/null
+```
+
+```bash
+find /opt/librenms -maxdepth 2 -name "lnms" 2>/dev/null
+```
+
+### 2. Добавляем устройства через artisan (это точно есть в новой версии)
+
+```bash
+su - librenms -c "cd /opt/librenms && php artisan librenms:add-device 172.16.1.2 public v2c"
+```
+
+```bash
+su - librenms -c "cd /opt/librenms && php artisan librenms:add-device 172.16.1.1 public v2c"
+```
+
+```bash
+su - librenms -c "cd /opt/librenms && php artisan librenms:add-device 127.0.0.1 public v2c"
+```
+
+### 3. Если artisan-команда тоже не найдена — через lnms обёртку
+
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms add device --hostname 172.16.1.2 --snmp-community public --snmp-version v2c"
+```
+
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms add device --hostname 172.16.1.1 --snmp-community public --snmp-version v2c"
+```
+
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms add device --hostname 127.0.0.1 --snmp-community public --snmp-version v2c"
+```
+
+### 4. Список всех доступных команд (если выше не сработало)
+
+```bash
+su - librenms -c "cd /opt/librenms && php artisan list | grep -i device"
+```
+
+Скинь вывод шага 1 и 4 — скажу точную команду.
+
+
+
+
+
+
+
+
+
+
 Добавляем устройства через терминал — это 100% работает, без кнопок.
 
 ## На HQ-SRV в терминале выполни по очереди:
