@@ -1,23 +1,43 @@
-cat > /etc/nginx/sites-available/librenms << 'EOF'
-server {
-    listen 80;
-    server_name 192.168.100.2;
-    root /opt/librenms;
-    index index.php;
-    charset utf-8;
-    location / {
-        try_files $uri $uri/ /index.php?$query_string;
-    }
-    location ~ \.php$ {
-        fastcgi_pass unix:/run/php/php8.4-fpm.sock;
-        fastcgi_index index.php;
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        include fastcgi_params;
-    }
-}
-EOF
+Две проблемы на скриншоте. Решаем:
 
-rm -f /etc/nginx/sites-enabled/default
-ln -sf /etc/nginx/sites-available/librenms /etc/nginx/sites-enabled/librenms
-nginx -t
-systemctl restart nginx
+### 1. LibreNMS не скачался (нет файла librenms.nonroot.cron)
+
+Проверь, есть ли вообще папка:
+
+```bash
+ls /opt/librenms/
+```
+
+Если папка пустая или её нет — скачай заново:
+
+```bash
+cd /opt && rm -rf librenms && git clone https://github.com/librenms/librenms.git && chown -R librenms:librenms /opt/librenms
+```
+
+После этого проверь:
+
+```bash
+ls /opt/librenms/librenms.nonroot.cron
+```
+
+Должен показать файл. Если показал — копируй cron:
+
+```bash
+cp /opt/librenms/librenms.nonroot.cron /etc/cron.d/librenms
+```
+
+```bash
+cp /opt/librenms/misc/librenms.logrotate /etc/logrotate.d/librenms
+```
+
+### 2. Неправильный синтаксис ss (нужен дефис)
+
+```bash
+ss -ulnp | grep 161
+```
+
+Должно показать `snmpd` на порту 161.
+
+---
+
+Выполни эти команды и скинь вывод `ls /opt/librenms/` — разберём дальше.
