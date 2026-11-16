@@ -1,22 +1,28 @@
-Проблема: не установлены Composer-зависимости (нет папки `vendor`). Config.php записался правильно — это видно по grep.
+Проблема: composer-wrapper не может скачать composer. Установим composer глобально через apt — это надёжнее.
 
-Выполни по порядку:
+**Выполни по порядку:**
 
-### 1. Установка Composer-зависимостей (ОТ ИМЕНИ librenms)
+### 1. Установить composer глобально
 
 ```bash
-su - librenms -c "cd /opt/librenms && ./scripts/composer_wrapper.php install --no-dev"
+apt install -y composer
 ```
 
-Жди 5-10 минут. Должно закончиться без ошибок.
+### 2. Запустить composer install от имени librenms
 
-### 2. После успешной установки — миграции БД
+```bash
+su - librenms -c "cd /opt/librenms && composer install --no-dev --no-interaction"
+```
+
+Жди 5-10 минут. Должно пройти без ошибок.
+
+### 3. Миграции БД
 
 ```bash
 su - librenms -c "cd /opt/librenms && php artisan migrate --force"
 ```
 
-### 3. Создание админа
+### 4. Создание админа
 
 ```bash
 su - librenms -c "cd /opt/librenms && php artisan librenms:add-user admin admin@novatech.local admin123 10"
@@ -28,13 +34,13 @@ su - librenms -c "cd /opt/librenms && php artisan librenms:add-user admin admin@
 HASH=$(php -r "echo password_hash('admin123', PASSWORD_BCRYPT);") && mysql -u root -proot123 librenms -e "INSERT INTO users (username, password, realname, email, descr, role, created_at, updated_at) VALUES ('admin', '$HASH', 'Admin', 'admin@novatech.local', 'Administrator', 10, NOW(), NOW());"
 ```
 
-### 4. Проверка
+### 5. Проверка
 
 ```bash
 mysql -u root -proot123 librenms -e "SELECT username, email, role FROM users;"
 ```
 
-### 5. Открывай браузер
+### 6. Открывай браузер
 
 ```
 http://192.168.100.2/
@@ -44,7 +50,7 @@ http://192.168.100.2/
 
 ---
 
-**Главное сейчас — шаг 1.** Запусти composer install и скинь вывод. Если пройдёт — дальше всё заработает.
+**Главное сейчас — шаг 1 и 2.** После установки composer через apt и запуска `composer install` всё должно заработать. Скинь вывод шага 2.
 
 
 
