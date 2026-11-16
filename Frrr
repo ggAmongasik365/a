@@ -1,3 +1,29 @@
+Теперь видна структура. Вставляй админа с правильными колонками:
+
+```bash
+HASH=$(php -r "echo password_hash('admin123', PASSWORD_BCRYPT);") && mysql -u root -proot123 librenms -e "INSERT INTO users (auth_type, username, password, realname, email, descr, can_modify_passwd, enabled, created_at, updated_at) VALUES ('mysql', 'admin', '$HASH', 'Admin', 'admin@novatech.local', 'Administrator', 1, 1, NOW(), NOW());"
+```
+
+Проверка:
+
+```bash
+mysql -u root -proot123 librenms -e "SELECT user_id, username, email FROM users;"
+```
+
+Должна вывести одну строку с `admin`.
+
+Открывай браузер:
+```
+http://192.168.100.2/
+```
+
+Логин: `admin`, пароль: `admin123`
+
+
+
+
+
+
 Две проблемы: неправильный владелец папки и нет прав на создание vendor. Исправляем:
 
 ```bash
