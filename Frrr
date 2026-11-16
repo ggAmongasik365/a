@@ -1,3 +1,59 @@
+Проблема: не установлены Composer-зависимости (нет папки `vendor`). Config.php записался правильно — это видно по grep.
+
+Выполни по порядку:
+
+### 1. Установка Composer-зависимостей (ОТ ИМЕНИ librenms)
+
+```bash
+su - librenms -c "cd /opt/librenms && ./scripts/composer_wrapper.php install --no-dev"
+```
+
+Жди 5-10 минут. Должно закончиться без ошибок.
+
+### 2. После успешной установки — миграции БД
+
+```bash
+su - librenms -c "cd /opt/librenms && php artisan migrate --force"
+```
+
+### 3. Создание админа
+
+```bash
+su - librenms -c "cd /opt/librenms && php artisan librenms:add-user admin admin@novatech.local admin123 10"
+```
+
+Если команда не найдена — через SQL:
+
+```bash
+HASH=$(php -r "echo password_hash('admin123', PASSWORD_BCRYPT);") && mysql -u root -proot123 librenms -e "INSERT INTO users (username, password, realname, email, descr, role, created_at, updated_at) VALUES ('admin', '$HASH', 'Admin', 'admin@novatech.local', 'Administrator', 10, NOW(), NOW());"
+```
+
+### 4. Проверка
+
+```bash
+mysql -u root -proot123 librenms -e "SELECT username, email, role FROM users;"
+```
+
+### 5. Открывай браузер
+
+```
+http://192.168.100.2/
+```
+
+Логин: `admin`, пароль: `admin123`
+
+---
+
+**Главное сейчас — шаг 1.** Запусти composer install и скинь вывод. Если пройдёт — дальше всё заработает.
+
+
+
+
+
+
+
+
+
 В новых версиях LibreNMS cron-файлы переехали в папку `dist/`. Копируй правильный:
 
 ```bash
