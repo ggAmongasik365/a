@@ -1,43 +1,85 @@
-Две проблемы на скриншоте. Решаем:
-
-### 1. LibreNMS не скачался (нет файла librenms.nonroot.cron)
-
-Проверь, есть ли вообще папка:
+В новых версиях LibreNMS cron-файлы переехали в папку `dist/`. Копируй правильный:
 
 ```bash
-ls /opt/librenms/
-```
-
-Если папка пустая или её нет — скачай заново:
-
-```bash
-cd /opt && rm -rf librenms && git clone https://github.com/librenms/librenms.git && chown -R librenms:librenms /opt/librenms
-```
-
-После этого проверь:
-
-```bash
-ls /opt/librenms/librenms.nonroot.cron
-```
-
-Должен показать файл. Если показал — копируй cron:
-
-```bash
-cp /opt/librenms/librenms.nonroot.cron /etc/cron.d/librenms
+cp /opt/librenms/dist/librenms.cron /etc/cron.d/librenms
 ```
 
 ```bash
-cp /opt/librenms/misc/librenms.logrotate /etc/logrotate.d/librenms
+chmod 644 /etc/cron.d/librenms
 ```
-
-### 2. Неправильный синтаксис ss (нужен дефис)
 
 ```bash
-ss -ulnp | grep 161
+cp /opt/librenms/dist/librenms.logrotate /etc/logrotate.d/librenms 2>/dev/null || cp /opt/librenms/misc/librenms.logrotate /etc/logrotate.d/librenms 2>/dev/null || echo "logrotate не найден"
 ```
 
-Должно показать `snmpd` на порту 161.
+Проверь содержимое cron:
+
+```bash
+cat /etc/cron.d/librenms
+```
+
+Должны быть строки с `librenms` пользователем и вызовами `poller.php`, `discovery.php` и т.д.
 
 ---
 
-Выполни эти команды и скинь вывод `ls /opt/librenms/` — разберём дальше.
+**Дальше продолжаем настройку LibreNMS.** Выполняй по порядку:
+
+### 1. Настройка config.php через PHP (гарантированно работает)
+
+```bash
+php -r "
+file_put_contents('/opt/librenms/config.php', '<?php
+\$config[\"db_host\"] = \"localhost\";
+\$config[\"db_port\"] = 3306;
+\$config[\"db_user\"] = \"librenms\";
+\$config[\"db_pass\"] = \"librenms_password\";
+\$config[\"db_name\"] = \"librenms\";
+\$config[\"db_socket\"] = \"\";
+\$config[\"enable_syslog\"] = 1;
+\$config[\"install_dir\"] = \"/opt/librenms\";
+\$config[\"snmp\"][\"community\"] = [\"public\"];
+\$config[\"auth_mechanism\"] = \"mysql\";
+\$config[\"update_channel\"] = \"release\";
+\$config[\"fping\"] = \"/usr/bin/fping\";
+');
+chown('librenms', '/opt/librenms/config.php');
+chgrp('librenms', '/opt/librenms/config.php');
+echo 'Config OK';
+"
+```
+
+### 2. Проверка конфига
+
+```bash
+grep -E "db_user|db_pass|db_name" /opt/librenms/config.php
+```
+
+### 3. Миграции БД (ОТ ИМЕНИ librenms)
+
+```bash
+su - librenms -c "cd /opt/librenms && php artisan migrate --force"
+```
+
+### 4. Создание админа
+
+```bash
+su - librenms -c "cd /opt/librenms && php artisan librenms:add-user admin admin@novatech.local admin123 10"
+```
+
+Если команда не найдена — создай через SQL:
+
+```bash
+HASH=$(php -r "echo password_hash('admin123', PASSWORD_BCRYPT);") && mysql -u root -proot123 librenms -e "INSERT INTO users (username, password, realname, email, descr, role, created_at, updated_at) VALUES ('admin', '$HASH', 'Admin', 'admin@novatech.local', 'Administrator', 10, NOW(), NOW());"
+```
+
+### 5. Открывай браузер
+
+```
+http://192.168.100.2/
+```
+
+Логин: `admin`, пароль: `admin123`
+
+---
+
+Скинь вывод шага 3 (migrate) — если пройдёт, всё остальное заработает.
