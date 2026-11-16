@@ -1,3 +1,43 @@
+Ошибка 419 Page Expired — не сгенерирован APP_KEY и нет прав на сессии. Исправляем:
+
+### 1. Сгенерировать APP_KEY
+
+```bash
+su - librenms -c "cd /opt/librenms && php artisan key:generate"
+```
+
+### 2. Права на storage
+
+```bash
+chown -R librenms:librenms /opt/librenms/storage /opt/librenms/bootstrap/cache
+chmod -R 775 /opt/librenms/storage /opt/librenms/bootstrap/cache
+```
+
+### 3. Очистить кеш
+
+```bash
+su - librenms -c "cd /opt/librenms && php artisan config:clear && php artisan cache:clear"
+```
+
+### 4. Перезапустить PHP-FPM
+
+```bash
+systemctl restart php8.4-fpm
+```
+
+### 5. Открывай браузер
+
+```
+http://192.168.100.2/login
+```
+
+Логин: `admin`, пароль: `admin123`
+
+
+
+
+
+
 Вижу! `index.php` находится в `/opt/librenms/html/`. Исправляем конфиг Nginx:
 
 ### 1. Обновляем конфиг Nginx
