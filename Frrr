@@ -1,3 +1,56 @@
+403 Forbidden — Nginx не имеет прав на чтение файлов. Исправляем:
+
+### 1. Права на папку LibreNMS
+
+```bash
+chown -R librenms:librenms /opt/librenms
+chmod -R 775 /opt/librenms
+```
+
+### 2. Добавить www-data (пользователь Nginx) в группу librenms
+
+```bash
+usermod -aG librenms www-data
+```
+
+### 3. Перезапустить Nginx
+
+```bash
+systemctl restart nginx
+```
+
+### 4. Проверить конфиг Nginx
+
+```bash
+cat /etc/nginx/sites-available/librenms
+```
+
+Должно быть `root /opt/librenms;` и `index index.php;`.
+
+### 5. Проверить, что index.php существует
+
+```bash
+ls -la /opt/librenms/index.php
+```
+
+### 6. Открывай браузер
+
+```
+http://192.168.100.2/
+```
+
+Логин: `admin`, пароль: `admin123`
+
+---
+
+Если снова 403 — скинь вывод команд 4 и 5, разберём.
+
+
+
+
+
+
+
 Теперь видна структура. Вставляй админа с правильными колонками:
 
 ```bash
