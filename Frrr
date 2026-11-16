@@ -1,3 +1,57 @@
+Проблема: в новых версиях LibreNMS `index.php` находится в папке `public/`, а не в корне.
+
+### 1. Найди index.php
+
+```bash
+find /opt/librenms -name "index.php" -type f 2>/dev/null
+```
+
+Скорее всего покажет `/opt/librenms/public/index.php`.
+
+### 2. Обнови Nginx конфиг
+
+```bash
+cat > /etc/nginx/sites-available/librenms << 'EOF'
+server {
+    listen 80;
+    server_name 192.168.100.2;
+    root /opt/librenms/public;
+    index index.php;
+    charset utf-8;
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+    location ~ \.php$ {
+        fastcgi_pass unix:/run/php/php8.4-fpm.sock;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+}
+EOF
+```
+
+### 3. Перезапусти Nginx
+
+```bash
+nginx -t && systemctl restart nginx
+```
+
+### 4. Открывай браузер
+
+```
+http://192.168.100.2/
+```
+
+Логин: `admin`, пароль: `admin123`
+
+
+
+
+
+
+
+
 403 Forbidden — Nginx не имеет прав на чтение файлов. Исправляем:
 
 ### 1. Права на папку LibreNMS
