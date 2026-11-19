@@ -206,27 +206,33 @@ cat /etc/cron.d/librenms
 
 
 
-Ошибка в том, что в твоей версии LibreNMS команда `device:add` не принимает именованные опции `--hostname`, `--snmp-version`, `--snmp-community`. Аргументы передаются позиционно — просто значениями через пробел.
+Теперь виден точный синтаксис. Команда принимает **один аргумент** (hostname/IP) и **опции** через флаги. Вот правильные команды:
 
-## Правильные команды:
+## Добавление устройств:
 
-### Добавление устройств:
-
+### HQ-RTR (MikroTik):
 ```bash
-su - librenms -c "cd /opt/librenms && ./lnms device:add 172.16.1.2 public v2c"
+su - librenms -c "cd /opt/librenms && ./lnms device:add -2 -c public 172.16.1.2"
 ```
 
+### ISP роутер:
 ```bash
-su - librenms -c "cd /opt/librenms && ./lnms device:add 172.16.1.1 public v2c"
+su - librenms -c "cd /opt/librenms && ./lnms device:add -2 -c public 172.16.1.1"
 ```
 
+### Сам сервер HQ-SRV:
 ```bash
-su - librenms -c "cd /opt/librenms && ./lnms device:add 127.0.0.1 public v2c"
+su - librenms -c "cd /opt/librenms && ./lnms device:add -2 -c public 127.0.0.1"
 ```
 
-Формат: `./lnms device:add <hostname> <community> <snmp_version>`
+**Параметры:**
+- `-2` — использовать SNMP v2c
+- `-c public` — строка сообщества "public"
+- Последний аргумент — IP-адрес устройства
 
-### Discovery (обнаружение):
+---
+
+## Discovery (обнаружение устройств):
 
 ```bash
 su - librenms -c "cd /opt/librenms && ./lnms device:discover 172.16.1.2"
@@ -240,7 +246,9 @@ su - librenms -c "cd /opt/librenms && ./lnms device:discover 172.16.1.1"
 su - librenms -c "cd /opt/librenms && ./lnms device:discover 127.0.0.1"
 ```
 
-### Poller (сбор метрик):
+---
+
+## Poller (сбор метрик):
 
 ```bash
 su - librenms -c "cd /opt/librenms && ./lnms device:poll 172.16.1.2"
@@ -254,16 +262,17 @@ su - librenms -c "cd /opt/librenms && ./lnms device:poll 172.16.1.1"
 su - librenms -c "cd /opt/librenms && ./lnms device:poll 127.0.0.1"
 ```
 
-### Проверка списка устройств:
+---
+
+## Проверка списка устройств:
 
 ```bash
 su - librenms -c "cd /opt/librenms && ./lnms device:list"
 ```
 
 Или через БД:
-
 ```bash
 mysql -u root -proot123 librenms -e "SELECT hostname, sysName, os FROM devices;"
 ```
 
-После этого открывай `http://192.168.100.2/devices` — устройства должны появиться. Скинь вывод команды `device:add` — если пройдёт успешно, дальше всё заработает.
+После этого открывай `http://192.168.100.2/devices` — устройства должны появиться. Скинь вывод команды `device:add` для первого устройства — если пройдёт успешно, дальше всё заработает.
