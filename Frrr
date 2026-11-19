@@ -1,3 +1,38 @@
+# 1. Проверка SNMP
+systemctl status snmpd --no-pager
+ss -ulnp | grep 161
+snmpwalk -v2c -c public 127.0.0.1 sysDescr.0
+
+# 2. Добавление устройства
+su - librenms -c "cd /opt/librenms && ./lnms device:add -2 -c public 127.0.0.1"
+
+# 3. Discovery и polling
+su - librenms -c "cd /opt/librenms && ./lnms device:discover 127.0.0.1"
+su - librenms -c "cd /opt/librenms && ./lnms device:poll 127.0.0.1"
+
+# 4. Установка postfix
+apt install -y postfix mailutils
+# (выбрать Local only при установке)
+
+# 5. Проверка почты
+echo "Тест LibreNMS" | mail -s "TEST ALERT" root@localhost
+mail
+# (выйти: q)
+
+# 6. Валидация
+su - librenms -c "cd /opt/librenms && ./lnms validate"
+
+
+
+
+
+
+
+
+
+
+
+
 # Завершающий этап настройки LibreNMS: добавление устройств и алертинг
 
 ## ШАГ 1. Установка почтового сервера для алертов
