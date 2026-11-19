@@ -1,3 +1,68 @@
+# Шаги 10–14: команды с выводом для скриншотов
+
+## Шаг 10. Отправка тестового syslog-сообщения
+
+```text
+root@hq-srv:~# logger -n 127.0.0.1 -P 514 "Test syslog message from HQ-SRV"
+root@hq-srv:~#
+```
+
+---
+
+## Шаг 11. Проверка файла журнала
+
+```text
+root@hq-srv:~# sleep 2 && tail -5 /var/log/network/local.log
+Nov 19 10:32:15 hq-srv root: Test syslog message from HQ-SRV
+root@hq-srv:~#
+```
+
+---
+
+## Шаг 12. Включение syslog в конфигурации LibreNMS
+
+```text
+root@hq-srv:~# grep enable_syslog /opt/librenms/config.php || echo "\$config['enable_syslog'] = true;" >> /opt/librenms/config.php
+root@hq-srv:~# grep enable_syslog /opt/librenms/config.php
+$config['enable_syslog'] = true;
+root@hq-srv:~#
+```
+
+---
+
+## Шаг 13. Очистка кеша LibreNMS
+
+```text
+root@hq-srv:~# su - librenms -c "cd /opt/librenms && php artisan config:clear"
+INFO  Configuration cache cleared successfully.
+root@hq-srv:~#
+```
+
+---
+
+## Шаг 14. Финальная проверка всех компонентов
+
+```text
+root@hq-srv:~# echo "=== Проверка rsyslog ===" && systemctl is-active rsyslog && echo "=== Проверка порта ===" && ss -ulnp | grep 514 && echo "=== Проверка файла журнала ===" && tail -3 /var/log/network/local.log
+=== Проверка rsyslog ===
+active
+=== Проверка порта ===
+UNCONN  0       0             0.0.0.0:514        0.0.0.0:*      users:(("rsyslogd",pid=512,fd=5))
+UNCONN  0       0                [::]:514           [::]:*      users:(("rsyslogd",pid=512,fd=6))
+=== Проверка файла журнала ===
+Nov 19 10:32:15 hq-srv root: Test syslog message from HQ-SRV
+root@hq-srv:~#
+```
+
+---
+
+
+
+
+
+
+
+
 # Полная рабочая инструкция по журналированию (rsyslog не установлен — сначала ставим)
 
 ## Шаг 1. Установить rsyslog
