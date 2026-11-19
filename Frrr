@@ -1,3 +1,101 @@
+# Диагностика: устройство не появилось в веб-интерфейсе
+
+## Шаг 1. Проверить, добавилось ли устройство в БД
+
+```bash
+mysql -u root -proot123 librenms -e "SELECT device_id, hostname, sysName, os, status FROM devices;"
+```
+
+Если таблица пустая — устройство не добавилось. Если есть запись — проблема в другом.
+
+---
+
+## Шаг 2. Если устройство НЕ в БД — добавить заново
+
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms device:add -2 -c public 127.0.0.1"
+```
+
+Если выдаст ошибку — попробуй с `--force`:
+
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms device:add -2 -c public 127.0.0.1 --force"
+```
+
+---
+
+## Шаг 3. Если устройство ЕСТЬ в БД, но не видно в вебе
+
+### 3.1. Запустить discovery:
+
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms device:discover 127.0.0.1"
+```
+
+### 3.2. Запустить poller:
+
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms device:poll 127.0.0.1"
+```
+
+### 3.3. Очистить кеш LibreNMS:
+
+```bash
+su - librenms -c "cd /opt/librenms && php artisan cache:clear"
+```
+
+### 3.4. Обновить страницу в браузере (Ctrl+F5)
+
+---
+
+## Шаг 4. Проверить SNMP на сервере
+
+```bash
+systemctl status snmpd --no-pager | head -5
+```
+
+```bash
+snmpwalk -v2c -c public 127.0.0.1 sysDescr.0
+```
+
+Если snmpd не запущен:
+
+```bash
+systemctl enable snmpd && systemctl start snmpd
+```
+
+---
+
+## Шаг 5. Проверить права на RRD-директорию
+
+```bash
+ls -la /opt/librenms/rrd/
+```
+
+Если директории нет — создать:
+
+```bash
+mkdir -p /opt/librenms/rrd && chown librenms:librenms /opt/librenms/rrd
+```
+
+---
+
+## Шаг 6. Финальная проверка
+
+```bash
+mysql -u root -proot123 librenms -e "SELECT device_id, hostname, status FROM devices;"
+```
+
+Должна быть хотя бы одна запись. После этого обнови страницу `http://192.168.100.2/devices/` — устройство должно появиться.
+
+---
+
+**Скинь вывод команды из Шага 1** — там будет видно, добавилось устройство или нет, и я скажу точное решение.
+
+
+
+
+
 # Полный набор команд для проверки работоспособности LibreNMS
 
 ## 1. Валидация системы (правильная команда для новой версии)
