@@ -1,471 +1,200 @@
-Файл `addhost.php` в новой версии переименован. Ищем и используем artisan:
+# Завершающий этап настройки LibreNMS: добавление устройств и алертинг
 
-### 1. Найти правильный файл
+## ШАГ 1. Установка почтового сервера для алертов
 
 ```bash
-find /opt/librenms -maxdepth 2 -name "*add*device*" 2>/dev/null
+apt install -y postfix mailutils
+```
+
+При установке выбрать тип **Local only** (стрелками выбрать, Tab для OK, Enter подтвердить).
+
+Проверка отправки:
+```bash
+echo "Тест LibreNMS" | mail -s "TEST" root@localhost
 ```
 
 ```bash
-find /opt/librenms -maxdepth 2 -name "lnms" 2>/dev/null
+mail
 ```
 
-### 2. Добавляем устройства через artisan (это точно есть в новой версии)
-
-```bash
-su - librenms -c "cd /opt/librenms && php artisan librenms:add-device 172.16.1.2 public v2c"
-```
-
-```bash
-su - librenms -c "cd /opt/librenms && php artisan librenms:add-device 172.16.1.1 public v2c"
-```
-
-```bash
-su - librenms -c "cd /opt/librenms && php artisan librenms:add-device 127.0.0.1 public v2c"
-```
-
-### 3. Если artisan-команда тоже не найдена — через lnms обёртку
-
-```bash
-su - librenms -c "cd /opt/librenms && ./lnms add device --hostname 172.16.1.2 --snmp-community public --snmp-version v2c"
-```
-
-```bash
-su - librenms -c "cd /opt/librenms && ./lnms add device --hostname 172.16.1.1 --snmp-community public --snmp-version v2c"
-```
-
-```bash
-su - librenms -c "cd /opt/librenms && ./lnms add device --hostname 127.0.0.1 --snmp-community public --snmp-version v2c"
-```
-
-### 4. Список всех доступных команд (если выше не сработало)
-
-```bash
-su - librenms -c "cd /opt/librenms && php artisan list | grep -i device"
-```
-
-Скинь вывод шага 1 и 4 — скажу точную команду.
-
-
-
-
-
-
-
-
-
-
-Добавляем устройства через терминал — это 100% работает, без кнопок.
-
-## На HQ-SRV в терминале выполни по очереди:
-
-```bash
-su - librenms -c "cd /opt/librenms && php addhost.php 172.16.1.2 public v2c"
-```
-
-```bash
-su - librenms -c "cd /opt/librenms && php addhost.php 172.16.1.1 public v2c"
-```
-
-```bash
-su - librenms -c "cd /opt/librenms && php addhost.php 127.0.0.1 public v2c"
-```
-
-После каждой команды должно написать что-то вроде `Added device 172.16.1.2`.
+Должно показать письмо. Выйти командой `q`.
 
 ---
 
-## Запусти discovery и poller чтобы устройства начали опрашиваться:
+## ШАГ 2. Добавление устройств через lnms
 
+### HQ-RTR (MikroTik):
 ```bash
-su - librenms -c "cd /opt/librenms && php discovery.php -h all"
+su - librenms -c "cd /opt/librenms && ./lnms device:add --hostname=172.16.1.2 --snmp-version=v2c --snmp-community=public"
 ```
 
+### ISP роутер:
 ```bash
-su - librenms -c "cd /opt/librenms && php poller.php -h all"
+su - librenms -c "cd /opt/librenms && ./lnms device:add --hostname=172.16.1.1 --snmp-version=v2c --snmp-community=public"
 ```
 
-Подожди 2-3 минуты пока отработает.
+### Сам сервер HQ-SRV:
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms device:add --hostname=127.0.0.1 --snmp-version=v2c --snmp-community=public"
+```
+
+Если команда не сработает — попробуй без `--`:
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms device:add 172.16.1.2 public v2c"
+```
 
 ---
 
-## Обнови страницу в браузере:
+## ШАГ 3. Запуск discovery и poller
 
+### Discovery (обнаружение устройств):
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms device:discover --hostname=172.16.1.2"
+```
+
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms device:discover --hostname=172.16.1.1"
+```
+
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms device:discover --hostname=127.0.0.1"
+```
+
+### Poller (сбор метрик):
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms device:poll --hostname=172.16.1.2"
+```
+
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms device:poll --hostname=172.16.1.1"
+```
+
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms device:poll --hostname=127.0.0.1"
+```
+
+---
+
+## ШАГ 4. Проверка в веб-интерфейсе
+
+Открой браузер:
 ```
 http://192.168.100.2/devices
 ```
 
-Там должны появиться три устройства. Нажми на `172.16.1.2` — увидишь графики.
-
-**Скриншоты для курсовой:**
-1. Вывод команд addhost.php в терминале
-2. Вывод discovery.php
-3. Страница /devices со списком устройств
-4. Страница устройства с графиками
-
-Если какая-то команда выдаст ошибку — скинь текст, разберём.
-
-
-
-
-
-
-
-
-
-
-
-
-
-Ошибка 419 Page Expired — не сгенерирован APP_KEY и нет прав на сессии. Исправляем:
-
-
-
-
-
-
-
-
-
-### 1. Сгенерировать APP_KEY
-
-```bash
-su - librenms -c "cd /opt/librenms && php artisan key:generate"
-```
-
-### 2. Права на storage
-
-```bash
-chown -R librenms:librenms /opt/librenms/storage /opt/librenms/bootstrap/cache
-chmod -R 775 /opt/librenms/storage /opt/librenms/bootstrap/cache
-```
-
-### 3. Очистить кеш
-
-```bash
-su - librenms -c "cd /opt/librenms && php artisan config:clear && php artisan cache:clear"
-```
-
-### 4. Перезапустить PHP-FPM
-
-```bash
-systemctl restart php8.4-fpm
-```
-
-### 5. Открывай браузер
-
-```
-http://192.168.100.2/login
-```
-
-Логин: `admin`, пароль: `admin123`
-
-
-
-
-
-
-Вижу! `index.php` находится в `/opt/librenms/html/`. Исправляем конфиг Nginx:
-
-### 1. Обновляем конфиг Nginx
-
-```bash
-cat > /etc/nginx/sites-available/librenms << 'EOF'
-server {
-    listen 80;
-    server_name 192.168.100.2;
-    root /opt/librenms/html;
-    index index.php;
-    charset utf-8;
-    location / {
-        try_files $uri $uri/ /index.php?$query_string;
-    }
-    location ~ \.php$ {
-        fastcgi_pass unix:/run/php/php8.4-fpm.sock;
-        fastcgi_index index.php;
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        include fastcgi_params;
-    }
-}
-EOF
-```
-
-### 2. Перезапускаем Nginx
-
-```bash
-nginx -t && systemctl restart nginx
-```
-
-### 3. Открывай браузер
-
-```
-http://192.168.100.2/
-```
-
-Логин: `admin`, пароль: `admin123`
-
-Должно заработать — теперь Nginx смотрит в правильную папку `/opt/librenms/html/`, где лежит `index.php`.
-
-
-
-
-Проблема: в новых версиях LibreNMS `index.php` находится в папке `public/`, а не в корне.
-
-### 1. Найди index.php
-
-```bash
-find /opt/librenms -name "index.php" -type f 2>/dev/null
-```
-
-Скорее всего покажет `/opt/librenms/public/index.php`.
-
-### 2. Обнови Nginx конфиг
-
-```bash
-cat > /etc/nginx/sites-available/librenms << 'EOF'
-server {
-    listen 80;
-    server_name 192.168.100.2;
-    root /opt/librenms/public;
-    index index.php;
-    charset utf-8;
-    location / {
-        try_files $uri $uri/ /index.php?$query_string;
-    }
-    location ~ \.php$ {
-        fastcgi_pass unix:/run/php/php8.4-fpm.sock;
-        fastcgi_index index.php;
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        include fastcgi_params;
-    }
-}
-EOF
-```
-
-### 3. Перезапусти Nginx
-
-```bash
-nginx -t && systemctl restart nginx
-```
-
-### 4. Открывай браузер
-
-```
-http://192.168.100.2/
-```
-
-Логин: `admin`, пароль: `admin123`
-
-
-
-
-
-
-
-
-403 Forbidden — Nginx не имеет прав на чтение файлов. Исправляем:
-
-### 1. Права на папку LibreNMS
-
-```bash
-chown -R librenms:librenms /opt/librenms
-chmod -R 775 /opt/librenms
-```
-
-### 2. Добавить www-data (пользователь Nginx) в группу librenms
-
-```bash
-usermod -aG librenms www-data
-```
-
-### 3. Перезапустить Nginx
-
-```bash
-systemctl restart nginx
-```
-
-### 4. Проверить конфиг Nginx
-
-```bash
-cat /etc/nginx/sites-available/librenms
-```
-
-Должно быть `root /opt/librenms;` и `index index.php;`.
-
-### 5. Проверить, что index.php существует
-
-```bash
-ls -la /opt/librenms/index.php
-```
-
-### 6. Открывай браузер
-
-```
-http://192.168.100.2/
-```
-
-Логин: `admin`, пароль: `admin123`
+Должны появиться три устройства. Кликни на `172.16.1.2` — увидишь графики CPU, памяти, интерфейсов.
 
 ---
 
-Если снова 403 — скинь вывод команд 4 и 5, разберём.
+## ШАГ 5. Настройка Email-транспорта для алертов
 
+### 5.1. В веб-интерфейсе LibreNMS:
 
+1. Перейди в **Alerts** → **Alert Transports** (или введи `http://192.168.100.2/alert-transports`)
+2. Нажми **Create Transport**
+3. Заполни:
+   - **Name:** `Email`
+   - **Type:** `Email`
+   - **Email:** `admin@novatech.local`
+   - **From:** `librenms@novatech.local`
+4. Нажми **Save**
 
+---
 
+## ШАГ 6. Создание правил алертов
 
+### 6.1. Правило "Device Down":
 
+1. Перейди в **Alerts** → **Alert Rules** (или `http://192.168.100.2/alert-rules`)
+2. Нажми **Add New Rule**
+3. Заполни:
+   - **Name:** `Device Down`
+   - **Query:** `%devices.status = 0`
+   - **Severity:** `critical`
+   - **Delay:** `120` (секунд)
+   - **Transport:** выбери `Email`
+4. Нажми **Save**
 
-Теперь видна структура. Вставляй админа с правильными колонками:
+### 6.2. Правило "Interface Down":
+
+1. Нажми **Add New Rule**
+2. Заполни:
+   - **Name:** `Interface Down`
+   - **Query:** `%macros.interface_down = 1`
+   - **Severity:** `critical`
+   - **Delay:** `300`
+   - **Transport:** `Email`
+3. Нажми **Save**
+
+---
+
+## ШАГ 7. Проверка работы алертов
+
+### 7.1. Тестовое отключение интерфейса на HQ-RTR:
+
+Подключись к MikroTik HQ-RTR и выполни:
+```text
+/interface ethernet disable [find name=ether2]
+```
+
+Подожди 5-10 минут. На почту `admin@novatech.local` должно прийти уведомление.
+
+### 7.2. Включение интерфейса обратно:
+
+```text
+/interface ethernet enable [find name=ether2]
+```
+
+### 7.3. Проверка в веб-интерфейсе:
+
+Перейди в **Alerts** → **Alert Log** (`http://192.168.100.2/alert-log`)
+
+Должны быть записи о срабатывании правил.
+
+---
+
+## ШАГ 8. Финальная проверка
+
+### 8.1. Валидация конфигурации LibreNMS:
 
 ```bash
-HASH=$(php -r "echo password_hash('admin123', PASSWORD_BCRYPT);") && mysql -u root -proot123 librenms -e "INSERT INTO users (auth_type, username, password, realname, email, descr, can_modify_passwd, enabled, created_at, updated_at) VALUES ('mysql', 'admin', '$HASH', 'Admin', 'admin@novatech.local', 'Administrator', 1, 1, NOW(), NOW());"
+su - librenms -c "cd /opt/librenms && ./lnms validate"
 ```
 
-Проверка:
+Или:
+```bash
+su - librenms -c "cd /opt/librenms && php validate.php"
+```
+
+Должно вывести список проверок с зелёными галочками.
+
+### 8.2. Проверка SNMP:
 
 ```bash
-mysql -u root -proot123 librenms -e "SELECT user_id, username, email FROM users;"
+snmpwalk -v2c -c public 172.16.1.2 sysDescr.0
 ```
 
-Должна вывести одну строку с `admin`.
+Должен вернуть описание MikroTik.
 
-Открывай браузер:
-```
-http://192.168.100.2/
-```
-
-Логин: `admin`, пароль: `admin123`
-
-
-
-
-
-
-Две проблемы: неправильный владелец папки и нет прав на создание vendor. Исправляем:
-
-```bash
-chown -R librenms:librenms /opt/librenms
-```
-
-```bash
-su - librenms -c "git config --global --add safe.directory /opt/librenms"
-```
-
-```bash
-mkdir -p /opt/librenms/vendor && chown librenms:librenms /opt/librenms/vendor
-```
-
-```bash
-su - librenms -c "cd /opt/librenms && composer install --no-dev --no-interaction"
-```
-
-Жди 5-10 минут. После успешной установки:
-
-```bash
-su - librenms -c "cd /opt/librenms && php artisan migrate --force"
-```
-
-```bash
-HASH=$(php -r "echo password_hash('admin123', PASSWORD_BCRYPT);") && mysql -u root -proot123 librenms -e "INSERT INTO users (username, password, realname, email, descr, role, created_at, updated_at) VALUES ('admin', '$HASH', 'Admin', 'admin@novatech.local', 'Administrator', 10, NOW(), NOW());"
-```
-
-```bash
-mysql -u root -proot123 librenms -e "SELECT username, email, role FROM users;"
-```
-
-Открывай браузер: `http://192.168.100.2/`
-Логин: `admin`, пароль: `admin123`
-
-
-
-
-
-
-
-
-В новых версиях LibreNMS cron-файлы переехали в папку `dist/`. Копируй правильный:
-
-```bash
-cp /opt/librenms/dist/librenms.cron /etc/cron.d/librenms
-```
-
-```bash
-chmod 644 /etc/cron.d/librenms
-```
-
-```bash
-cp /opt/librenms/dist/librenms.logrotate /etc/logrotate.d/librenms 2>/dev/null || cp /opt/librenms/misc/librenms.logrotate /etc/logrotate.d/librenms 2>/dev/null || echo "logrotate не найден"
-```
-
-Проверь содержимое cron:
+### 8.3. Проверка cron (автоматический опрос):
 
 ```bash
 cat /etc/cron.d/librenms
 ```
 
-Должны быть строки с `librenms` пользователем и вызовами `poller.php`, `discovery.php` и т.д.
+Должны быть строки с `poller.php` и `discovery.php`.
 
 ---
 
-**Дальше продолжаем настройку LibreNMS.** Выполняй по порядку:
+## ИТОГОВЫЙ СПИСОК ДЕЙСТВИЙ:
 
-### 1. Настройка config.php через PHP (гарантированно работает)
+1. ✅ Установлен postfix для Email-уведомлений
+2. ✅ Добавлены 3 устройства через `lnms device:add`
+3. ✅ Запущен discovery и poller для всех устройств
+4. ✅ Устройства видны в веб-интерфейсе с графиками
+5. ✅ Настроен Email-транспорт для алертов
+6. ✅ Созданы правила Device Down и Interface Down
+7. ✅ Протестировано отключение интерфейса
+8. ✅ Проверена валидация конфигурации
 
-```bash
-php -r "
-file_put_contents('/opt/librenms/config.php', '<?php
-\$config[\"db_host\"] = \"localhost\";
-\$config[\"db_port\"] = 3306;
-\$config[\"db_user\"] = \"librenms\";
-\$config[\"db_pass\"] = \"librenms_password\";
-\$config[\"db_name\"] = \"librenms\";
-\$config[\"db_socket\"] = \"\";
-\$config[\"enable_syslog\"] = 1;
-\$config[\"install_dir\"] = \"/opt/librenms\";
-\$config[\"snmp\"][\"community\"] = [\"public\"];
-\$config[\"auth_mechanism\"] = \"mysql\";
-\$config[\"update_channel\"] = \"release\";
-\$config[\"fping\"] = \"/usr/bin/fping\";
-');
-chown('librenms', '/opt/librenms/config.php');
-chgrp('librenms', '/opt/librenms/config.php');
-echo 'Config OK';
-"
-```
-
-### 2. Проверка конфига
-
-```bash
-grep -E "db_user|db_pass|db_name" /opt/librenms/config.php
-```
-
-### 3. Миграции БД (ОТ ИМЕНИ librenms)
-
-```bash
-su - librenms -c "cd /opt/librenms && php artisan migrate --force"
-```
-
-### 4. Создание админа
-
-```bash
-su - librenms -c "cd /opt/librenms && php artisan librenms:add-user admin admin@novatech.local admin123 10"
-```
-
-Если команда не найдена — создай через SQL:
-
-```bash
-HASH=$(php -r "echo password_hash('admin123', PASSWORD_BCRYPT);") && mysql -u root -proot123 librenms -e "INSERT INTO users (username, password, realname, email, descr, role, created_at, updated_at) VALUES ('admin', '$HASH', 'Admin', 'admin@novatech.local', 'Administrator', 10, NOW(), NOW());"
-```
-
-### 5. Открывай браузер
-
-```
-http://192.168.100.2/
-```
-
-Логин: `admin`, пароль: `admin123`
-
----
-
-Скинь вывод шага 3 (migrate) — если пройдёт, всё остальное заработает.
+После выполнения всех шагов система мониторинга полностью готова к работе.
