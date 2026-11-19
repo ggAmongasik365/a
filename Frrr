@@ -1,4 +1,316 @@
+# Полный набор команд для проверки работоспособности LibreNMS
+
+## 1. Валидация системы (правильная команда для новой версии)
+
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms health:check"
+```
+
+Или через PHP-скрипт:
+
+```bash
+su - librenms -c "cd /opt/librenms && php validate.php"
+```
+
+Должен вывести список проверок с зелёными галочками (OK) или предупреждениями.
+
+---
+
+## 2. Проверка SNMP-доступности устройства
+
+```bash
+snmpwalk -v2c -c public 127.0.0.1 sysDescr.0
+```
+
+Должен вернуть описание системы (Linux, Debian).
+
+```bash
+snmpwalk -v2c -c public 127.0.0.1 ifDescr
+```
+
+Должен вернуть список сетевых интерфейсов.
+
+---
+
+## 3. Проверка discovery (обнаружение устройства)
+
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms device:discover 127.0.0.1"
+```
+
+Должен вывести информацию об обнаруженном устройстве: ОС, железо, интерфейсы.
+
+---
+
+## 4. Проверка poller (сбор метрик)
+
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms device:poll 127.0.0.1"
+```
+
+Должен вывести статистику: SNMP-запросы, SQL-операции, RRD-файлы.
+
+---
+
+## 5. Проверка списка устройств
+
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms device:list"
+```
+
+Или через БД:
+
+```bash
+mysql -u root -proot123 librenms -e "SELECT device_id, hostname, sysName, os, status FROM devices;"
+```
+
+Должен вывести устройство `127.0.0.1` со статусом `1` (Up).
+
+---
+
+## 6. Проверка cron (автоматический опрос)
+
+```bash
+cat /etc/cron.d/librenms
+```
+
+Должны быть строки с `poller.php`, `discovery.php`, `daily.sh`.
+
+Проверка, что cron работает:
+
+```bash
+systemctl status cron --no-pager
+```
+
+---
+
+## 7. Проверка почтовой системы
+
+```bash
+echo "Тест алерта LibreNMS $(date)" | mail -s "ALERT TEST" root@localhost
+```
+
+```bash
+mail
+```
+
+Должно показать новое письмо. Выйти: `q`.
+
+---
+
+## 8. Создание API-токена для проверки алертов
+
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms api:token-create admin"
+```
+
+Команда выведет токен, например: `a1b2c3d4e5f6...`
+
+Сохрани его:
+
+```bash
+TOKEN="вставь_токен_сюда"
+```
+
+---
+
+## 9. Проверка алертов через API
+
+### 9.1. Список правил алертов:
+
+```bash
+curl -s http://127.0.0.1/api/v0/rules -H "X-Auth-Token: $TOKEN" | python3 -m json.tool
+```
+
+Должен вывести список созданных правил (Device Down, High CPU и т.д.).
+
+### 9.2. Журнал алертов:
+
+```bash
+curl -s http://127.0.0.1/api/v0/alerts -H "X-Auth-Token: $TOKEN" | python3 -m json.tool | head -50
+```
+
+Пока будет пусто или с минимальными записями.
+
+### 9.3. Список транспортов:
+
+```bash
+curl -s http://127.0.0.1/api/v0/alert-transports -H "X-Auth-Token: $TOKEN" | python3 -m json.tool
+```
+
+Должен вывести Email-транспорт.
+
+---
+
+## 10. Тестовая генерация алерта
+
+### 10.1. Остановить SNMP-агент (имитация сбоя):
+
+```bash
+systemctl stop snmpd
+```
+
+### 10.2. Подождать 2-3 минуты (cron должен запустить poller)
+
+Или запустить poller вручную:
+
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms device:poll 127.0.0.1"
+```
+
+В выводе должна быть строка о срабатывании алерта.
+
+### 10.3. Проверить журнал алертов:
+
+```bash
+curl -s http://127.0.0.1/api/v0/alerts -H "X-Auth-Token: $TOKEN" | python3 -m json.tool | head -50
+```
+
+Или в веб-интерфейсе: `http://192.168.100.2/alert-log`
+
+### 10.4. Проверить почту:
+
+```bash
+mail
+```
+
+Должно появиться письмо об алерте.
+
+### 10.5. Запустить SNMP обратно:
+
+```bash
+systemctl start snmpd
+```
+
+---
+
+## 11. Проверка веб-интерфейса
+
+Открой в браузере:
+
+```
+http://192.168.100.2/devices
+```
+
+Должно отображаться устройство `127.0.0.1` со статусом **Up** (зелёная иконка).
+
+Кликни на устройство — должны быть графики CPU, памяти, дисков, сети.
+
+---
+
+## 12. Проверка логов LibreNMS
+
+```bash
+tail -50 /opt/librenms/logs/librenms.log
+```
+
+```bash
+tail -50 /opt/librenms/logs/poller.log
+```
+
+```bash
+tail -50 /opt/librenms/logs/discovery.log
+```
+
+Должны быть свежие записи без критических ошибок.
+
+---
+
+## 13. Проверка RRD-файлов (графики)
+
+```bash
+ls -la /opt/librenms/rrd/127.0.0.1/
+```
+
+Должны быть файлы с расширением `.rrd` — это файлы графиков.
+
+---
+
+## 14. Итоговая проверка всех служб
+
+```bash
+systemctl status nginx --no-pager | head -5
+```
+
+```bash
+systemctl status php8.4-fpm --no-pager | head -5
+```
+
+```bash
+systemctl status mariadb --no-pager | head -5
+```
+
+```bash
+systemctl status snmpd --no-pager | head -5
+```
+
+```bash
+systemctl status cron --no-pager | head -5
+```
+
+Все службы должны быть `active (running)`.
+
+---
+
+## Краткий чек-лист команд (копировать по порядку):
+
+```bash
+# 1. Валидация
+su - librenms -c "cd /opt/librenms && php validate.php"
+
+# 2. SNMP проверка
+snmpwalk -v2c -c public 127.0.0.1 sysDescr.0
+
+# 3. Discovery
+su - librenms -c "cd /opt/librenms && ./lnms device:discover 127.0.0.1"
+
+# 4. Poller
+su - librenms -c "cd /opt/librenms && ./lnms device:poll 127.0.0.1"
+
+# 5. Список устройств
+mysql -u root -proot123 librenms -e "SELECT device_id, hostname, status FROM devices;"
+
+# 6. Cron
+cat /etc/cron.d/librenms
+
+# 7. Тест почты
+echo "Тест $(date)" | mail -s "TEST" root@localhost && mail
+
+# 8. API токен
+su - librenms -c "cd /opt/librenms && ./lnms api:token-create admin"
+
+# 9. Тест алерта (остановить SNMP)
+systemctl stop snmpd
+sleep 120
+su - librenms -c "cd /opt/librenms && ./lnms device:poll 127.0.0.1"
+mail
+systemctl start snmpd
+
+# 10. Логи
+tail -20 /opt/librenms/logs/poller.log
+
+# 11. Статус служб
+systemctl status nginx php8.4-fpm mariadb snmpd cron --no-pager | grep "Active:"
+```
+
+После выполнения всех команд система мониторинга будет полностью проверена и готова к демонстрации.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # 1. Проверка SNMP
+
 systemctl status snmpd --no-pager
 ss -ulnp | grep 161
 snmpwalk -v2c -c public 127.0.0.1 sysDescr.0
