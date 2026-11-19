@@ -1,3 +1,212 @@
+# Инструкция по части 2.2 "Журналирование сети" - команды для скриншотов
+
+## Шаг 1. Проверка статуса rsyslog
+
+```bash
+systemctl status rsyslog --no-pager | head -15
+```
+
+**Что покажет:** Статус службы rsyslog (должна быть active/running)
+
+---
+
+## Шаг 2. Проверка, слушается ли порт 514
+
+```bash
+ss -ulnp | grep 514
+```
+
+**Что покажет:** Пустой вывод (порт НЕ слушается - это ошибка)
+
+---
+
+## Шаг 3. Проверка конфигурации rsyslog
+
+```bash
+grep -n "imudp" /etc/rsyslog.conf
+```
+
+**Что покажет:** Строки с `#module(load="imudp")` и `#input(type="imudp" port="514")` - закомментированы (причина ошибки)
+
+---
+
+## Шаг 4. Решение - раскомментировать модуль UDP
+
+```bash
+sed -i 's/#module(load="imudp")/module(load="imudp")/' /etc/rsyslog.conf
+sed -i 's/#input(type="imudp" port="514")/input(type="imudp" port="514")/' /etc/rsyslog.conf
+```
+
+**Что сделает:** Уберёт символы комментария в начале строк
+
+---
+
+## Шаг 5. Перезапуск rsyslog
+
+```bash
+systemctl restart rsyslog
+```
+
+**Что сделает:** Применит новую конфигурацию
+
+---
+
+## Шаг 6. Проверка после исправления
+
+```bash
+ss -ulnp | grep 514
+```
+
+**Что покажет:** Порт 514 теперь слушается процессом rsyslogd (ошибка исправлена)
+
+---
+
+## Шаг 7. Создание директории для логов
+
+```bash
+mkdir -p /var/log/network
+chown syslog:adm /var/log/network
+chmod 755 /var/log/network
+```
+
+**Что сделает:** Создаст директорию для хранения сетевых логов
+
+---
+
+## Шаг 8. Создание правила фильтрации
+
+```bash
+cat > /etc/rsyslog.d/10-network.conf << 'EOF'
+# Приём логов от сетевого оборудования
+if $fromhost-ip startswith '192.168.100.' then {
+    action(type="omfile" file="/var/log/network/local.log")
+    stop
+}
+EOF
+```
+
+**Что сделает:** Создаст правило для записи логов из подсети 192.168.100.0/27
+
+---
+
+## Шаг 9. Перезапуск rsyslog после создания правила
+
+```bash
+systemctl restart rsyslog
+```
+
+---
+
+## Шаг 10. Генерация тестового сообщения
+
+```bash
+logger -n 127.0.0.1 -P 514 "Test syslog message from HQ-SRV"
+```
+
+**Что сделает:** Отправит тестовое syslog-сообщение
+
+---
+
+## Шаг 11. Проверка файла журнала
+
+```bash
+sleep 2 && tail -5 /var/log/network/local.log
+```
+
+**Что покажет:** Тестовое сообщение записано в файл (журналирование работает)
+
+---
+
+## Шаг 12. Включение syslog в LibreNMS
+
+```bash
+grep enable_syslog /opt/librenms/config.php || echo "\$config['enable_syslog'] = true;" >> /opt/librenms/config.php
+```
+
+**Что сделает:** Добавит параметр включения syslog в конфиг LibreNMS
+
+---
+
+## Шаг 13. Очистка кеша LibreNMS
+
+```bash
+su - librenms -c "cd /opt/librenms && php artisan config:clear"
+```
+
+---
+
+## Шаг 14. Финальная проверка
+
+```bash
+echo "=== Проверка rsyslog ===" && systemctl is-active rsyslog && echo "=== Проверка порта ===" && ss -ulnp | grep 514 && echo "=== Проверка файла журнала ===" && tail -3 /var/log/network/local.log
+```
+
+**Что покажет:** Все три проверки пройдены успешно
+
+---
+
+## Итоговый список команд для копирования (выполнять по порядку):
+
+```bash
+# 1. Проверка статуса
+systemctl status rsyslog --no-pager | head -15
+
+# 2. Проверка порта (должен быть пустой вывод - ошибка)
+ss -ulnp | grep 514
+
+# 3. Проверка конфигурации (покажет закомментированные строки)
+grep -n "imudp" /etc/rsyslog.conf
+
+# 4. Исправление ошибки
+sed -i 's/#module(load="imudp")/module(load="imudp")/' /etc/rsyslog.conf
+sed -i 's/#input(type="imudp" port="514")/input(type="imudp" port="514")/' /etc/rsyslog.conf
+
+# 5. Перезапуск
+systemctl restart rsyslog
+
+# 6. Проверка после исправления (порт должен слушаться)
+ss -ulnp | grep 514
+
+# 7. Создание директории
+mkdir -p /var/log/network && chown syslog:adm /var/log/network && chmod 755 /var/log/network
+
+# 8. Создание правила
+cat > /etc/rsyslog.d/10-network.conf << 'EOF'
+if $fromhost-ip startswith '192.168.100.' then {
+    action(type="omfile" file="/var/log/network/local.log")
+    stop
+}
+EOF
+
+# 9. Перезапуск
+systemctl restart rsyslog
+
+# 10. Тестовое сообщение
+logger -n 127.0.0.1 -P 514 "Test syslog message from HQ-SRV"
+
+# 11. Проверка журнала
+sleep 2 && tail -5 /var/log/network/local.log
+
+# 12. Включение в LibreNMS
+grep enable_syslog /opt/librenms/config.php || echo "\$config['enable_syslog'] = true;" >> /opt/librenms/config.php
+
+# 13. Очистка кеша
+su - librenms -c "cd /opt/librenms && php artisan config:clear"
+
+# 14. Финальная проверка
+echo "=== Проверка rsyslog ===" && systemctl is-active rsyslog && echo "=== Проверка порта ===" && ss -ulnp | grep 514 && echo "=== Проверка файла журнала ===" && tail -3 /var/log/network/local.log
+```
+
+Выполни эти команды по порядку, делай скриншоты после каждой (или группы связанных) - получишь полный набор для раздела 2.2 курсовой.
+
+
+
+
+
+
+
+
+
 # Проблема: не работают кнопки и стили в LibreNMS
 
 Это классическая проблема — **не загружаются CSS и JavaScript файлы**. Интерфейс отображается, но без стилей и интерактивности.
