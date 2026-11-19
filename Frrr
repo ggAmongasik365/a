@@ -1,3 +1,115 @@
+# Полная рабочая инструкция по журналированию (rsyslog не установлен — сначала ставим)
+
+## Шаг 1. Установить rsyslog
+
+```bash
+apt install -y rsyslog
+```
+
+## Шаг 2. Проверить, что служба запустилась
+
+```bash
+systemctl status rsyslog --no-pager | head -10
+```
+
+## Шаг 3. Проверить конфигурационный файл
+
+```bash
+grep -n "imudp" /etc/rsyslog.conf
+```
+
+Вывод покажет закомментированные строки (с `#`) — это и есть "ошибка", которую будем исправлять.
+
+## Шаг 4. Раскомментировать модуль UDP (решение проблемы)
+
+```bash
+sed -i 's/#module(load="imudp")/module(load="imudp")/' /etc/rsyslog.conf
+sed -i 's/#input(type="imudp" port="514")/input(type="imudp" port="514")/' /etc/rsyslog.conf
+```
+
+## Шаг 5. Перезапустить rsyslog
+
+```bash
+systemctl restart rsyslog
+```
+
+## Шаг 6. Проверить, что порт 514 слушается
+
+```bash
+ss -ulnp | grep 514
+```
+
+Должна появиться строка с `rsyslogd` и портом 514.
+
+## Шаг 7. Создать директорию для сетевых логов
+
+```bash
+mkdir -p /var/log/network && chown syslog:adm /var/log/network && chmod 755 /var/log/network
+```
+
+## Шаг 8. Создать правило фильтрации
+
+```bash
+cat > /etc/rsyslog.d/10-network.conf << 'EOF'
+if $fromhost-ip startswith '192.168.100.' then {
+    action(type="omfile" file="/var/log/network/local.log")
+    stop
+}
+EOF
+```
+
+## Шаг 9. Перезапустить rsyslog
+
+```bash
+systemctl restart rsyslog
+```
+
+## Шаг 10. Отправить тестовое сообщение
+
+```bash
+logger -n 127.0.0.1 -P 514 "Test syslog message from HQ-SRV"
+```
+
+## Шаг 11. Проверить файл журнала
+
+```bash
+sleep 2 && tail -5 /var/log/network/local.log
+```
+
+Должна появиться запись с тестовым сообщением.
+
+## Шаг 12. Включить syslog в LibreNMS
+
+```bash
+grep enable_syslog /opt/librenms/config.php || echo "\$config['enable_syslog'] = true;" >> /opt/librenms/config.php
+```
+
+## Шаг 13. Очистить кеш LibreNMS
+
+```bash
+su - librenms -c "cd /opt/librenms && php artisan config:clear"
+```
+
+## Шаг 14. Финальная проверка
+
+```bash
+echo "=== rsyslog ===" && systemctl is-active rsyslog && echo "=== порт 514 ===" && ss -ulnp | grep 514 && echo "=== журнал ===" && tail -3 /var/log/network/local.log
+```
+
+---
+
+**Выполняй команды по порядку, делай скриншоты после каждого шага.** Сначала установи rsyslog (Шаг 1) — без него ничего не работает.
+
+
+
+
+
+
+
+
+
+
+
 # Инструкция по части 2.2 "Журналирование сети" - команды для скриншотов
 
 ## Шаг 1. Проверка статуса rsyslog
