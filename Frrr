@@ -206,34 +206,120 @@ cat /etc/cron.d/librenms
 
 
 
-Теперь виден точный синтаксис. Команда принимает **один аргумент** (hostname/IP) и **опции** через флаги. Вот правильные команды:
+# Настройка SNMP на MikroTik HQ-RTR и добавление устройств в LibreNMS
 
-## Добавление устройств:
+## Проблема
+
+Команды MikroTik (`/snmp community add...`) выполняются **не в bash-терминале Linux**, а в консоли RouterOS. Нужно сначала подключиться к MikroTik.
+
+---
+
+## ШАГ 1. Подключение к MikroTik HQ-RTR
+
+### Вариант А: Через SSH (из терминала HQ-SRV)
+
+```bash
+ssh admin@172.16.1.2
+```
+
+Ввести пароль от MikroTik. После успешного входа приглашение изменится с `root@hq-srv:~#` на `[admin@hq-rtr] >`.
+
+### Вариант Б: Через WinBox (графический интерфейс)
+
+1. Скачать WinBox с сайта MikroTik
+2. Подключиться к `172.16.1.2` по MAC-адресу или IP
+3. Логин: `admin`, пароль: (установленный при настройке)
+4. Открыть вкладку **New Terminal**
+
+---
+
+## ШАГ 2. Настройка SNMP на MikroTik (в консоли RouterOS)
+
+После подключения к MikroTik (приглашение `[admin@hq-rtr] >`) выполнить:
+
+```text
+/snmp community add name=public address=192.168.100.0/27 security=none
+```
+
+```text
+/snmp community add name=public address=172.16.1.0/28 security=none
+```
+
+```text
+/snmp set enabled=yes
+```
+
+### Что делают команды:
+- Первая — создаёт SNMP-сообщество `public` для подсети HQ-SRV (192.168.100.0/27)
+- Вторая — создаёт сообщество для подсети между роутерами (172.16.1.0/28)
+- Третья — включает SNMP-агент на маршрутизаторе
+
+### Проверка настройки SNMP на MikroTik:
+
+```text
+/snmp community print
+```
+
+Должно вывести список созданных сообществ.
+
+```text
+/snmp print
+```
+
+Должно показать `enabled: yes`.
+
+---
+
+## ШАГ 3. Выход из консоли MikroTik
+
+```text
+quit
+```
+
+Или `Ctrl+D`. Вернёшься в bash на HQ-SRV.
+
+---
+
+## ШАГ 4. Проверка SNMP с HQ-SRV
+
+На сервере HQ-SRV выполнить:
+
+```bash
+snmpwalk -v2c -c public 172.16.1.2 sysDescr.0
+```
+
+Должен вернуть описание устройства, например:
+```
+SNMPv2-MIB::sysDescr.0 = STRING: RouterOS RB951Ui-2HnD
+```
+
+Если вернулось описание — SNMP работает корректно.
+
+---
+
+## ШАГ 5. Добавление устройств в LibreNMS
 
 ### HQ-RTR (MikroTik):
 ```bash
 su - librenms -c "cd /opt/librenms && ./lnms device:add -2 -c public 172.16.1.2"
 ```
 
-### ISP роутер:
+### ISP роутер (172.16.1.1):
+Сначала настроить SNMP на ISP (аналогично Шагу 2, но через подключение к 172.16.1.1), затем:
 ```bash
 su - librenms -c "cd /opt/librenms && ./lnms device:add -2 -c public 172.16.1.1"
 ```
 
-### Сам сервер HQ-SRV:
+### Сам сервер HQ-SRV (локальный SNMP):
 ```bash
 su - librenms -c "cd /opt/librenms && ./lnms device:add -2 -c public 127.0.0.1"
 ```
 
-**Параметры:**
-- `-2` — использовать SNMP v2c
-- `-c public` — строка сообщества "public"
-- Последний аргумент — IP-адрес устройства
-
 ---
 
-## Discovery (обнаружение устройств):
+## ШАГ 6. Discovery и Polling
 
+### Обнаружение устройств:
 ```bash
 su - librenms -c "cd /opt/librenms && ./lnms device:discover 172.16.1.2"
 ```
@@ -246,10 +332,7 @@ su - librenms -c "cd /opt/librenms && ./lnms device:discover 172.16.1.1"
 su - librenms -c "cd /opt/librenms && ./lnms device:discover 127.0.0.1"
 ```
 
----
-
-## Poller (сбор метрик):
-
+### Сбор метрик:
 ```bash
 su - librenms -c "cd /opt/librenms && ./lnms device:poll 172.16.1.2"
 ```
@@ -264,15 +347,113 @@ su - librenms -c "cd /opt/librenms && ./lnms device:poll 127.0.0.1"
 
 ---
 
-## Проверка списка устройств:
+## ШАГ 7. Проверка в веб-интерфейсе
 
-```bash
-su - librenms -c "cd /opt/librenms && ./lnms device:list"
+Открыть браузер:
+```
+http://192.168.100.2/devices
 ```
 
-Или через БД:
+Должны отобразиться три устройства со статусом "Up". Клик на устройство — графики CPU, памяти, интерфейсов.
+
+---
+
+## ШАГ 8. Настройка Email-транспорта для алертов
+
+### 8.1. Установка postfix на HQ-SRV:
+
 ```bash
-mysql -u root -proot123 librenms -e "SELECT hostname, sysName, os FROM devices;"
+apt install -y postfix mailutils
 ```
 
-После этого открывай `http://192.168.100.2/devices` — устройства должны появиться. Скинь вывод команды `device:add` для первого устройства — если пройдёт успешно, дальше всё заработает.
+При установке выбрать **Local only** (стрелками, Tab, Enter).
+
+### 8.2. Проверка отправки почты:
+
+```bash
+echo "Тест LibreNMS" | mail -s "TEST" root@localhost
+```
+
+```bash
+mail
+```
+
+Должно показать письмо. Выйти: `q`.
+
+### 8.3. Создание транспорта в LibreNMS:
+
+В браузере: `http://192.168.100.2/alert-transports`
+
+Нажать **Create Transport**:
+- **Name:** `Email`
+- **Type:** `Email`
+- **Email:** `admin@novatech.local`
+- **From:** `librenms@novatech.local`
+- Нажать **Save**
+
+---
+
+## ШАГ 9. Создание правил алертов
+
+В браузере: `http://192.168.100.2/alert-rules`
+
+### Правило "Device Down":
+- **Name:** `Device Down`
+- **Query:** `%devices.status = 0`
+- **Severity:** `critical`
+- **Delay:** `120`
+- **Transport:** `Email`
+- **Save**
+
+### Правило "Interface Down":
+- **Name:** `Interface Down`
+- **Query:** `%macros.interface_down = 1`
+- **Severity:** `critical`
+- **Delay:** `300`
+- **Transport:** `Email`
+- **Save**
+
+---
+
+## ШАГ 10. Тест алерта
+
+На MikroTik HQ-RTR (через SSH или WinBox):
+
+```text
+/interface ethernet disable [find name=ether2]
+```
+
+Подождать 5-10 минут. Проверить:
+- В LibreNMS: `http://192.168.100.2/alert-log` — должна появиться запись
+- На почте `admin@novatech.local` — должно прийти уведомление
+
+Включить интерфейс обратно:
+
+```text
+/interface ethernet enable [find name=ether2]
+```
+
+---
+
+## ШАГ 11. Финальная проверка
+
+```bash
+su - librenms -c "cd /opt/librenms && ./lnms validate"
+```
+
+Должен вывести список проверок с зелёными галочками.
+
+---
+
+## Итоговый порядок действий:
+
+1. Подключиться к MikroTik по SSH: `ssh admin@172.16.1.2`
+2. Выполнить команды SNMP в консоли RouterOS
+3. Выйти из MikroTik: `quit`
+4. Проверить SNMP с HQ-SRV: `snmpwalk -v2c -c public 172.16.1.2 sysDescr.0`
+5. Добавить устройства через `./lnms device:add`
+6. Запустить discovery и poller
+7. Установить postfix для Email
+8. Настроить транспорт и правила алертов в веб-интерфейсе
+9. Протестировать отключением интерфейса
+10. Запустить `./lnms validate`
